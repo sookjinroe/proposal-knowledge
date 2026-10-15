@@ -516,8 +516,18 @@ addEventListener('beforeunload', e => {
   if (dirty){ e.preventDefault(); e.returnValue = ''; }
 });
 // 다른 사람의 편집 상태를 주기적으로 가져와 트리에 표시
+let VER = null;
 setInterval(async () => {
-  try { LOCKS = (await (await fetch('/api/locks')).json()).locks || {}; buildTree(); } catch(_){}
+  try {
+    const d = await (await fetch('/api/locks')).json();
+    LOCKS = d.locks || {}; buildTree();
+    // 서버가 새 코드로 올라갔으면 화면도 알아서 따라간다.
+    // 고치던 중이면 건드리지 않는다 — 다음 차례에 다시 본다.
+    if (d.ver){
+      if (VER && d.ver !== VER && !dirty && !beatTimer) location.reload();
+      VER = d.ver;
+    }
+  } catch(_){}
 }, 45000);
 addEventListener('keydown', e => {
   if ((e.ctrlKey||e.metaKey) && e.key === 's'){ e.preventDefault();

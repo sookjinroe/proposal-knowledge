@@ -16,6 +16,8 @@ import os
 import re
 import shutil
 import sys
+import hashlib
+import subprocess
 import threading
 import time
 import webbrowser
@@ -646,6 +648,78 @@ def save(cat, name, payload, who=None):
             'index': idx, 'mtime': os.path.getmtime(fp), 'q': count_q(text)}
 
 
+# ─────────────────────── 자동 갱신 ───────────────────────
+# 아무도 손대지 않아도 최신 코드로 따라가게 한다.
+# 서버가 주기적으로 git 으로 당겨 받고, 받았으면 스스로 다시 뜬다.
+# 열어 둔 화면은 버전이 바뀐 것을 보고 알아서 새로 고친다.
+
+RESTART = {'want': False, 'srv': None}
+
+
+def version():
+    """화면 파일이 바뀌면 값이 바뀐다. 브라우저가 이걸로 갱신을 안다."""
+    h = hashlib.sha1()
+    for f in ('app.html', 'server.py'):
+        p = os.path.join(HERE, f)
+        try:
+            h.update(('%s:%s' % (f, os.path.getmtime(p))).encode())
+        except OSError:
+            pass
+    return h.hexdigest()[:12]
+
+
+def _git(*args, timeout=120):
+    return subprocess.run(['git'] + list(args), cwd=HERE, timeout=timeout,
+                          capture_output=True, text=True, encoding='utf-8', errors='replace')
+
+
+def update_once():
+    """새 커밋이 있으면 당겨 받는다. 받았으면 True."""
+    if not os.path.isdir(os.path.join(HERE, '.git')):
+        return False
+    try:
+        if not _git('remote').stdout.strip():
+            return False
+        if _git('fetch', '--quiet').returncode != 0:
+            return False
+        br = _git('rev-parse', '--abbrev-ref', 'HEAD').stdout.strip() or 'HEAD'
+        up = _git('rev-parse', '--abbrev-ref', '@{u}').stdout.strip()
+        if not up:
+            return False
+        local = _git('rev-parse', 'HEAD').stdout.strip()
+        remote = _git('rev-parse', up).stdout.strip()
+        if not local or local == remote:
+            return False
+        if _git('status', '--porcelain').stdout.strip():
+            print('  [자동 갱신] 고쳐 둔 파일이 있어 건너뜁니다.')
+            return False
+        r = _git('pull', '--ff-only', '--quiet')
+        if r.returncode != 0:
+            print('  [자동 갱신] 당기지 못했습니다: %s' % (r.stderr or '').strip()[:120])
+            return False
+        print('  [자동 갱신] %s → %s 로 올렸습니다.' % (local[:7], remote[:7]))
+        return True
+    except Exception as e:
+        print('  [자동 갱신] 건너뜀: %s' % e)
+        return False
+
+
+def updater(every):
+    while True:
+        time.sleep(every)
+        try:
+            if locks_all():
+                continue          # 누가 편집 중이면 다음 차례에
+            if update_once():
+                print('  [자동 갱신] 새 코드로 다시 뜹니다.')
+                RESTART['want'] = True
+                if RESTART['srv']:
+                    threading.Thread(target=RESTART['srv'].shutdown, daemon=True).start()
+                return
+        except Exception:
+            pass
+
+
 # ─────────────────────────── HTTP ───────────────────────────
 
 SAVE_LOCK = threading.Lock()
@@ -717,7 +791,7 @@ class H(SimpleHTTPRequestHandler):
             return self._json(r or {'error': '없는 레코드'}, 200 if r else 404)
         if u.path == '/api/locks':
             me = self.who()
-            return self._json({'me': me, 'locks': locks_all(me)})
+            return self._json({'me': me, 'locks': locks_all(me), 'ver': version()})
         if u.path.startswith('/api/'):
             return self._json({'error': 'unknown'}, 404)
         return super().do_GET()
@@ -761,6 +835,10 @@ def main():
                     help='여러 명이 쓰는 서버면 0.0.0.0')
     ap.add_argument('--root', default=DEFAULT_ROOT)
     ap.add_argument('--no-open', action='store_true')
+    ap.add_argument('--no-auto-update', action='store_true',
+                    help='git 으로 스스로 최신 코드를 받지 않는다')
+    ap.add_argument('--update-every', type=int, default=600,
+                    help='자동 갱신 확인 주기(초). 기본 10분')
     a = ap.parse_args()
     ROOT = a.root.replace('\\', '/').rstrip('/')
 
@@ -794,10 +872,26 @@ def main():
         print('편집기가 이미 켜져 있는지 보세요 — %s' % url)
         print('다른 포트로 켜려면: python server.py --port 8778')
         sys.exit(1)
+    RESTART['srv'] = srv
+    if not a.no_auto_update:
+        if os.path.isdir(os.path.join(HERE, '.git')):
+            update_once()
+            threading.Thread(target=updater, args=(a.update_every,), daemon=True).start()
+            print('  자동 갱신 %d분마다 (끄려면 --no-auto-update)' % max(1, a.update_every // 60))
+        else:
+            print('  자동 갱신 없음 — git 으로 받은 폴더가 아닙니다')
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
         print('\n멈췄습니다.')
+    finally:
+        try:
+            srv.server_close()
+        except Exception:
+            pass
+    if RESTART['want']:
+        time.sleep(1)
+        os.execv(sys.executable, [sys.executable, os.path.abspath(__file__)] + sys.argv[1:])
 
 
 if __name__ == '__main__':
