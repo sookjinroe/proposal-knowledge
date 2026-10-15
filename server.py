@@ -354,11 +354,24 @@ def _row(ln):
     return [c.strip() for c in cells]
 
 
-def md_html(text):
+def md_html(text, anchor=False):
+    """마크다운을 HTML 로.
+
+    anchor=True 면 블록마다 원문 줄 번호를 심는다. 읽기 화면에서 그 블록을
+    눌러 그 자리에서 고치고, 그 줄만 갈아 끼우기 위한 것이다.
+    """
     out, lines, i = [], text.split('\n'), 0
+
+    def wrap(html, lo, hi, kind):
+        if not anchor:
+            return html
+        return ('<div class="blk" data-lo="%d" data-hi="%d" data-kind="%s">%s</div>'
+                % (lo, hi, kind, html))
+
     while i < len(lines):
         ln = lines[i]
         s = ln.strip()
+        lo = i
 
         if not s:
             i += 1
@@ -366,8 +379,11 @@ def md_html(text):
 
         if s.startswith('#'):
             n = len(s) - len(s.lstrip('#'))
-            out.append('<h%d>%s</h%d>' % (min(n, 6), _inline(s[n:].strip()), min(n, 6)))
             i += 1
+            # 섹션 제목은 구조라 편집 대상이 아니다
+            out.append(wrap('<h%d>%s</h%d>'
+                            % (min(n, 6), _inline(s[n:].strip()), min(n, 6)),
+                            lo, i - 1, 'head'))
             continue
 
         # 표
@@ -384,7 +400,7 @@ def md_html(text):
             for r in body:
                 h.append('<tr>' + ''.join('<td>%s</td>' % _inline(c) for c in r) + '</tr>')
             h.append('</tbody></table></div>')
-            out.append(''.join(h))
+            out.append(wrap(''.join(h), lo, i - 1, 'table'))
             continue
 
         if s.startswith('>'):
@@ -392,7 +408,9 @@ def md_html(text):
             while i < len(lines) and lines[i].strip().startswith('>'):
                 buf.append(lines[i].strip().lstrip('>').strip())
                 i += 1
-            out.append('<blockquote>%s</blockquote>' % _inline(' '.join(buf)))
+            # 「출처」 줄은 근거라 편집기에서 손대지 않는다
+            out.append(wrap('<blockquote>%s</blockquote>' % _inline(' '.join(buf)),
+                            lo, i - 1, 'src'))
             continue
 
         # 목록 — 들여쓰기로 깊이를 잡는다
@@ -431,7 +449,11 @@ def md_html(text):
                 rest = ''.join('<div class="sub">%s</div>' % _inline(x) for x in parts[1:])
                 h.append('<li>%s%s</li>' % (first, rest))
             h += ['</ul>'] * len(lvl)
-            out.append(''.join(h))
+            # 목록 끝의 빈 줄은 블록 범위에 넣지 않는다
+            hi = i - 1
+            while hi > lo and not lines[hi].strip():
+                hi -= 1
+            out.append(wrap(''.join(h), lo, hi, 'list'))
             continue
 
         buf = []
@@ -440,10 +462,63 @@ def md_html(text):
             buf.append(lines[i].strip())
             i += 1
         if buf:
-            out.append('<p>%s</p>' % _inline(' '.join(buf)))
+            out.append(wrap('<p>%s</p>' % _inline(' '.join(buf)), lo, i - 1, 'para'))
         else:
             i += 1
     return '\n'.join(out)
+
+
+def save_block(cat, name, payload, who=None):
+    """블록 하나(줄 구간)만 갈아 끼운다. 읽기 화면에서 그 자리 편집용."""
+    fm = dict((c, f) for c, _, f in CATS)[cat]
+    fp = rec_path(cat, name, fm)
+    if not fp or not os.path.exists(fp):
+        return {'ok': False, 'errors': ['레코드 파일을 찾지 못했습니다.']}
+
+    who = clean_who(who or payload.get('who'))
+    held = lock_read(cat, name, who)
+    if not held or not held['mine']:
+        return {'ok': False, 'lock': held, 'errors': [
+            '편집 잠금이 없습니다. %s' % ('지금은 %s 님이 편집 중입니다.' % held['who']
+                                   if held else '「수정하기」를 다시 눌러 주세요.')]}
+
+    if payload.get('mtime') and abs(os.path.getmtime(fp) - payload['mtime']) > 1:
+        return {'ok': False, 'stale': True, 'errors': [
+            '이 파일이 편집기 밖에서 바뀌었습니다. 새로 고쳐 다시 여세요.']}
+
+    body = read_cached(fp)[0]
+    lines = body.split('\n')
+    lo, hi = int(payload['lo']), int(payload['hi'])
+    if not (0 <= lo <= hi < len(lines)):
+        return {'ok': False, 'errors': ['고칠 위치를 찾지 못했습니다. 새로 고쳐 다시 여세요.']}
+
+    new = str(payload.get('text', '')).replace('\r\n', '\n').split('\n')
+    while new and not new[-1].strip():
+        new.pop()
+    if not new:
+        return {'ok': False, 'errors': ['내용이 비었습니다. 지우려면 줄을 남겨 두세요.']}
+
+    # 섹션 제목을 새로 만들어 구조를 흔드는 것은 막는다
+    for l in new:
+        if l.startswith('## '):
+            return {'ok': False, 'errors': [
+                '본문에 섹션 제목(## )을 넣을 수 없습니다. 구조가 흔들립니다.']}
+
+    lines[lo:hi + 1] = new
+    text = '\n'.join(lines).rstrip('\n') + '\n'
+
+    p = parse(text)
+    errs, warns = validate(cat, p, text)
+    if errs:
+        return {'ok': False, 'errors': errs, 'warnings': warns}
+
+    bk = backup(fp, cat, name)
+    open(fp, 'w', encoding='utf-8', newline='').write(text)
+    with _CACHE_LOCK:
+        _CACHE[fp] = (os.path.getmtime(fp), text)
+    scan_cached(True)
+    return {'ok': True, 'warnings': warns, 'backup': os.path.relpath(bk, HERE),
+            'mtime': os.path.getmtime(fp), 'q': count_q(text)}
 
 
 # ─────────────────────────── 잠금 ───────────────────────────
@@ -853,7 +928,7 @@ class H(SimpleHTTPRequestHandler):
                     return self._json({'error': '없는 카테고리: %s' % cat}, 404)
                 r = load(cat, name)
                 if r:
-                    r['html'] = md_html(r['raw'])
+                    r['html'] = md_html(r['raw'], anchor=True)
                     r['lock'] = lock_read(cat, name, self.who())
                     r['me'] = self.who()
                 return self._json(r or {'error': '없는 레코드'}, 200 if r else 404)
@@ -874,13 +949,24 @@ class H(SimpleHTTPRequestHandler):
     def do_POST(self):
         from urllib.parse import urlparse
         u = urlparse(self.path)
-        if u.path not in ('/api/save', '/api/lock', '/api/unlock', '/api/beat'):
+        if u.path not in ('/api/save', '/api/block', '/api/lock',
+                          '/api/unlock', '/api/beat'):
             return self._json({'error': 'unknown'}, 404)
         n = int(self.headers.get('Content-Length', 0))
         try:
             body = json.loads(self.rfile.read(n).decode('utf-8'))
         except Exception as e:
             return self._json({'ok': False, 'errors': ['요청을 읽지 못했습니다: %s' % e]}, 400)
+
+        if u.path == '/api/block':
+            try:
+                with SAVE_LOCK:
+                    return self._json(save_block(body['cat'], body['name'],
+                                                 body, self.who()))
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                return self._json({'ok': False, 'errors': ['저장 중 오류: %s' % e]}, 500)
 
         if u.path != '/api/save':
             c, nm = body.get('cat'), body.get('name')
