@@ -8,3 +8,4 @@ __pycache__/
 # 편집기 설정
 .vscode/
 .idea/
+_log/

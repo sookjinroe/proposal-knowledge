@@ -911,12 +911,45 @@ def main():
             s.reconfigure(encoding='utf-8', errors='replace')
         except Exception:
             pass
+
+    # pythonw 로 띄우면 콘솔이 없어 메시지가 어디에도 남지 않는다.
+    # 로그온 자동 시작처럼 창 없이 돌릴 때 무슨 일이 있었는지 볼 수 있게 한다.
+    a0, _ = argparse.ArgumentParser(add_help=False).parse_known_args()
+    if '--log' in sys.argv:
+        path = sys.argv[sys.argv.index('--log') + 1]
+        os.makedirs(os.path.dirname(os.path.abspath(path)) or '.', exist_ok=True)
+        fh = open(path, 'a', encoding='utf-8', errors='replace', buffering=1)
+        fh.write('\n%s  ─── 켬 ───\n' % datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+
+        class _Tee:
+            def __init__(self, *s):
+                self.s = [x for x in s if x]
+
+            def write(self, t):
+                for x in self.s:
+                    try:
+                        x.write(t)
+                    except Exception:
+                        pass
+                return len(t)
+
+            def flush(self):
+                for x in self.s:
+                    try:
+                        x.flush()
+                    except Exception:
+                        pass
+
+        sys.stdout = _Tee(sys.stdout, fh)
+        sys.stderr = _Tee(sys.stderr, fh)
     ap = argparse.ArgumentParser()
     ap.add_argument('--port', type=int, default=8777)
     ap.add_argument('--host', default='127.0.0.1',
                     help='여러 명이 쓰는 서버면 0.0.0.0')
     ap.add_argument('--root', default=DEFAULT_ROOT)
     ap.add_argument('--no-open', action='store_true')
+    ap.add_argument('--log', default='',
+                    help='콘솔 없이 돌릴 때 기록을 남길 파일')
     ap.add_argument('--no-auto-update', action='store_true',
                     help='git 으로 스스로 최신 코드를 받지 않는다')
     ap.add_argument('--update-every', type=int, default=600,
