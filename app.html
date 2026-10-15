@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>제안전략 지식시스템 편집기</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* 좌측 폴더 트리 + 우측 레코드. 읽기와 편집을 한 화면에서 토글 */
+:root{
+  --bg:#f3f4f6; --panel:#fff; --sunk:#e9ebee; --rule:#d7dbe0;
+  --ink:#15181c; --muted:#656c74; --faint:#8d949c;
+  --accent:#0d6575; --accent-soft:#e2eff1;
+  --warn:#8a5600; --warn-soft:#f6ecd9;
+  --tmpl:#64548c; --tmpl-soft:#ece8f5;
+  --ok:#2c6a4f; --ok-soft:#e2f0e9;
+  --bad:#9a2f24; --bad-soft:#f8e6e3;
+  --ui:"IBM Plex Sans KR",system-ui,-apple-system,"Malgun Gothic",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#121519; --panel:#1a1e23; --sunk:#20252b; --rule:#2e343c;
+  --ink:#e3e7ea; --muted:#939ba4; --faint:#747c85;
+  --accent:#54b2c2; --accent-soft:#17323a;
+  --warn:#d7a84a; --warn-soft:#30291a;
+  --tmpl:#a898d4; --tmpl-soft:#262238;
+  --ok:#73b894; --ok-soft:#18271f;
+  --bad:#e08a7e; --bad-soft:#2e1d1a;
+  color-scheme:dark;}}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--ui);font-size:14px;
+  line-height:1.6;-webkit-font-smoothing:antialiased;display:flex;flex-direction:column}
+
+header.top{display:flex;flex-wrap:wrap;gap:.6rem 1.2rem;align-items:center;
+  padding:.6rem 16px;border-bottom:1px solid var(--rule);background:var(--panel)}
+h1{font-size:.95rem;font-weight:600;margin:0;white-space:nowrap}
+.rootp{font-family:var(--mono);font-size:.7rem;color:var(--muted);overflow-wrap:anywhere}
+#q{font-family:var(--ui);font-size:.82rem;color:var(--ink);background:var(--bg);
+  border:1px solid var(--rule);border-radius:3px;padding:.36rem .55rem;flex:1 1 14rem;min-width:0}
+#q:focus{outline:2px solid var(--accent);outline-offset:-1px}
+.tg{font-family:var(--ui);font-size:.74rem;color:var(--muted);background:var(--bg);
+  border:1px solid var(--rule);border-radius:3px;padding:.36rem .55rem;cursor:pointer;white-space:nowrap}
+.tg:hover{background:var(--sunk)}
+.tg[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);font-weight:500}
+#hits{font-family:var(--mono);font-size:.7rem;color:var(--muted);white-space:nowrap}
+
+.cols{flex:1 1 auto;display:grid;grid-template-columns:20rem minmax(0,1fr);min-height:0}
+@media (max-width:860px){.cols{grid-template-columns:1fr;grid-template-rows:14rem minmax(0,1fr)}}
+nav.tree{overflow:auto;border-right:1px solid var(--rule);background:var(--panel);min-width:0}
+@media (max-width:860px){nav.tree{border-right:0;border-bottom:1px solid var(--rule)}}
+main.view{overflow:auto;padding:1rem 1.1rem 3rem;min-width:0}
+
+.cat{border-bottom:1px solid var(--rule)}
+.cathead{display:flex;align-items:center;gap:.4rem;width:100%;text-align:left;cursor:pointer;
+  font-family:var(--mono);font-size:.74rem;font-weight:500;color:var(--ink);
+  background:var(--sunk);border:0;padding:.45rem .6rem}
+.cathead:hover{color:var(--accent)}
+.tw{width:.7rem;color:var(--faint)}
+.cat[data-open="false"] .tw{transform:rotate(-90deg)}
+.cathead .cn{margin-left:auto;font-size:.66rem;color:var(--muted)}
+.cat[data-open="false"] .kids{display:none}
+.rec{display:flex;align-items:baseline;gap:.4rem;width:100%;text-align:left;cursor:pointer;
+  background:transparent;border:0;border-left:2px solid transparent;
+  padding:.28rem .6rem .28rem 1.4rem;color:var(--ink);font-family:var(--ui);font-size:.78rem;
+  font-weight:300;line-height:1.4}
+.rec:hover{background:var(--sunk)}
+.rec[aria-current="true"]{background:var(--accent-soft);border-left-color:var(--accent);font-weight:500}
+.rec .nm{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
+.rec .qn{font-family:var(--mono);font-size:.64rem;color:var(--warn);background:var(--warn-soft);
+  border-radius:2px;padding:0 .24rem}
+.rec .qn.z{color:var(--ok);background:transparent}
+.rec.tmpl .nm{color:var(--tmpl)}
+.rec.tmpl .nm::after{content:"양식";font-family:var(--mono);font-size:.58rem;margin-left:.3rem;
+  background:var(--tmpl-soft);color:var(--tmpl);padding:0 .2rem;border-radius:2px}
+.rec.ex .nm::after{content:"기입례(가상)"}
+.empty,.tfile{padding:.3rem .6rem .3rem 1.4rem;font-size:.72rem;color:var(--faint)}
+.tfile{font-family:var(--mono);padding-left:2.2rem;overflow-wrap:anywhere}
+
+.vhead{border-bottom:1px solid var(--rule);padding-bottom:.7rem;margin-bottom:1rem}
+.vhead h2{font-size:1rem;font-weight:600;margin:0;overflow-wrap:anywhere}
+.pathrow{display:flex;flex-wrap:wrap;gap:.4rem;align-items:center;margin-top:.4rem}
+.pathrow code{font-family:var(--mono);font-size:.7rem;color:var(--muted);background:var(--sunk);
+  padding:.16rem .4rem;border-radius:2px;overflow-wrap:anywhere;min-width:0}
+.btn{font-family:var(--ui);font-size:.75rem;color:var(--muted);background:var(--panel);
+  border:1px solid var(--rule);border-radius:3px;padding:.3rem .6rem;cursor:pointer;white-space:nowrap}
+.btn:hover:not(:disabled){background:var(--sunk);color:var(--accent)}
+.btn:disabled{opacity:.4;cursor:default}
+.btn.go{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:500}
+.btn.go:hover:not(:disabled){background:var(--accent);filter:brightness(1.1);color:#fff}
+.subs{display:flex;flex-wrap:wrap;gap:.3rem;margin-top:.5rem}
+.sub{font-family:var(--mono);font-size:.66rem;border:1px solid var(--rule);border-radius:2px;
+  padding:.12rem .4rem;color:var(--faint)}
+.sub.has{color:var(--accent);border-color:var(--accent)}
+.warnbar{margin-top:.5rem;font-size:.76rem;color:var(--warn)}
+.warnbar b{font-family:var(--mono);font-weight:600}
+.tmplbar{margin-top:.5rem;font-size:.78rem;color:var(--tmpl);background:var(--tmpl-soft);
+  border-left:3px solid var(--tmpl);padding:.45rem .7rem}
+
+/* 편집 */
+.fields{display:grid;gap:.4rem;margin-bottom:.4rem}
+.fld{display:grid;grid-template-columns:9.5rem minmax(0,1fr);gap:.5rem;align-items:start}
+@media (max-width:620px){.fld{grid-template-columns:1fr;gap:.15rem}}
+.fld label{font-family:var(--mono);font-size:.7rem;color:var(--muted);padding-top:.42rem;
+  overflow-wrap:anywhere}
+.fld textarea,.sec textarea{font-family:var(--ui);font-size:.84rem;line-height:1.55;color:var(--ink);
+  background:var(--panel);border:1px solid var(--rule);border-radius:3px;padding:.38rem .5rem;
+  width:100%;resize:vertical;min-width:0}
+.fld textarea{min-height:2.3rem}
+.fld textarea:focus,.sec textarea:focus{outline:2px solid var(--accent);outline-offset:-1px}
+.fld textarea.dirty,.sec textarea.dirty{border-color:var(--accent);background:var(--accent-soft)}
+.sec{margin-bottom:1rem}
+.sech{display:flex;align-items:baseline;gap:.5rem;font-family:var(--mono);font-size:.74rem;
+  font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);
+  margin:1.3rem 0 .4rem;padding-bottom:.22rem;border-bottom:1px solid var(--rule)}
+.sech .lock{font-size:.62rem;color:var(--faint);letter-spacing:0;text-transform:none;font-weight:400}
+.sec textarea{min-height:7rem;font-family:var(--mono);font-size:.78rem;line-height:1.7}
+.ro{white-space:pre-wrap;font-family:var(--mono);font-size:.78rem;line-height:1.7;
+  background:var(--panel);border:1px solid var(--rule);border-radius:3px;padding:.5rem .6rem;
+  overflow-x:auto}
+.ro .q,.fld .q{background:var(--warn-soft);color:var(--warn);border-radius:2px;padding:0 .2em}
+table.info{border-collapse:collapse;width:100%;font-size:.84rem}
+table.info td{padding:.32rem .5rem;border-bottom:1px solid var(--rule);vertical-align:top}
+table.info td:first-child{font-family:var(--mono);font-size:.72rem;color:var(--muted);
+  white-space:nowrap;width:1%}
+
+/* 읽기 화면 */
+.doc{font-size:.88rem;line-height:1.75;overflow-wrap:break-word}
+.doc h1{display:none}
+.doc h2{font-family:var(--mono);font-size:.76rem;font-weight:600;letter-spacing:.07em;
+  text-transform:uppercase;color:var(--accent);margin:1.5rem 0 .5rem;padding-bottom:.24rem;
+  border-bottom:1px solid var(--rule)}
+.doc h2:first-child{margin-top:0}
+.doc h3{font-size:.9rem;font-weight:600;margin:1rem 0 .3rem}
+.doc p{margin:.45rem 0}
+.doc ul{margin:.35rem 0;padding-left:1.1rem}
+.doc li{margin:.24rem 0}
+.doc li .sub{color:var(--muted);font-size:.95em;margin:.12rem 0 .3rem}
+.doc strong{font-weight:600}
+.doc em{font-style:normal;color:var(--muted)}
+.doc code{font-family:var(--mono);font-size:.85em;background:var(--sunk);padding:.08em .32em;
+  border-radius:2px;overflow-wrap:anywhere}
+.doc blockquote{margin:.6rem 0;padding:.5rem .8rem;background:var(--sunk);
+  border-left:3px solid var(--rule);color:var(--muted);font-size:.85rem;border-radius:0 2px 2px 0}
+.doc .q{background:var(--warn-soft);color:var(--warn);border-radius:2px;padding:0 .2em}
+.tblwrap{overflow-x:auto;margin:.5rem 0;min-width:0}
+.doc table{border-collapse:collapse;font-size:.82rem;min-width:100%}
+.doc th,.doc td{text-align:left;padding:.36rem .6rem;border-bottom:1px solid var(--rule);
+  vertical-align:top}
+.doc thead th{font-family:var(--mono);font-size:.66rem;letter-spacing:.05em;text-transform:uppercase;
+  color:var(--muted);font-weight:500;border-bottom:1px solid var(--ink)}
+.doc tbody tr:last-child td{border-bottom:0}
+.doc td:first-child{font-family:var(--mono);font-size:.76rem;color:var(--muted);white-space:nowrap}
+
+/* 잠금 */
+.lockbar{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;margin-top:.55rem;
+  padding:.45rem .7rem;border-radius:3px;font-size:.78rem}
+.lockbar.mine{background:var(--ok-soft);border-left:3px solid var(--ok);color:var(--ok)}
+.lockbar.other{background:var(--warn-soft);border-left:3px solid var(--warn);color:var(--warn)}
+.lockbar b{font-family:var(--mono);font-weight:600}
+.rec .lk{font-size:.62rem;font-family:var(--mono);color:var(--warn);flex:0 0 auto}
+.rec .lk.mine{color:var(--ok)}
+.editing .savebar{background:var(--ok-soft);border-color:var(--ok)}
+.savebar{position:sticky;bottom:0;display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;
+  background:var(--panel);border:1px solid var(--rule);border-radius:4px;
+  padding:.5rem .7rem;margin-top:1.2rem;box-shadow:0 -2px 10px rgb(0 0 0 / .06)}
+.msg{font-size:.78rem;min-width:0;overflow-wrap:anywhere}
+.msg.ok{color:var(--ok)}
+.msg.bad{color:var(--bad)}
+.errs{background:var(--bad-soft);border-left:3px solid var(--bad);padding:.55rem .75rem;
+  margin-top:.6rem;font-size:.8rem;border-radius:0 2px 2px 0}
+.errs ul{margin:.25rem 0 0;padding-left:1.1rem}
+.okbox{background:var(--ok-soft);border-left:3px solid var(--ok);padding:.5rem .75rem;
+  margin-top:.6rem;font-size:.78rem;border-radius:0 2px 2px 0}
+.nav2{display:flex;justify-content:space-between;gap:.5rem;margin-top:1.4rem;
+  padding-top:.7rem;border-top:1px solid var(--rule)}
+.nav2 .btn{max-width:46%;overflow:hidden;text-overflow:ellipsis}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <h1>지식시스템 편집기</h1>
+  <span class="rootp" id="rootp">연결 중…</span>
+  <input id="q" type="search" placeholder="레코드명·본문 검색" autocomplete="off">
+  <button class="tg" id="tgq" aria-pressed="false">확인 필요만</button>
+  <button class="tg" id="tgr" aria-pressed="false">새로 읽기</button>
+  <button class="tg" id="whoBtn" title="편집할 때 다른 사람에게 보이는 이름">이름</button>
+  <span id="hits"></span>
+</header>
+
+<div class="cols">
+  <nav class="tree" id="tree"><div class="empty">읽는 중…</div></nav>
+  <main class="view" id="view"><div class="empty">왼쪽에서 레코드를 고르세요.</div></main>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+
+// 서버 한 대에 여러 명이 붙으므로, 편집자 이름은 브라우저가 들고 있다가 요청마다 보낸다.
+// 신원 증명이 아니라 "지금 누가 보고 있는지" 를 알리는 이름표다.
+let ME = '';
+function loadWho(){
+  try { ME = localStorage.getItem('ks.who') || ''; } catch(_){ ME = ''; }
+  return ME;
+}
+function saveWho(v){
+  ME = (v || '').trim().slice(0, 40);
+  try { localStorage.setItem('ks.who', ME); } catch(_){}
+  const b = document.querySelector('#whoBtn');
+  if (b) b.textContent = ME || '이름 설정';
+  return ME;
+}
+function askWho(force){
+  const cur = loadWho();
+  if (cur && !force) return cur;
+  const v = prompt('편집할 때 다른 사람에게 보일 이름을 적어 주세요.\n예: 노숙진 / 노숙진(DevOps)', cur || '');
+  if (v === null) return cur;
+  return saveWho(v);
+}
+const _fetch = window.fetch.bind(window);
+window.fetch = (url, opt = {}) => {
+  const h = new Headers(opt.headers || {});
+  h.set('X-Editor-Who', encodeURIComponent(ME || ''));
+  return _fetch(url, {...opt, headers: h});
+};
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const markQ = s => esc(s).replace(/\(확인 필요[^)]*\)/g, m => `<span class="q">${m}</span>`);
+let TREE = null, FLAT = [], CUR = null, dirty = false;
+let onlyQ = false, LOCKS = {};
+
+function flatten(t){
+  const out = [];
+  for (const c of t.cats) for (const r of c.records)
+    out.push({...r, cat:c.id, key:c.id+'/'+r.name});
+  return out;
+}
+function visible(){
+  const s = $('#q').value.trim().toLowerCase();
+  return FLAT.filter(r => {
+    if (onlyQ && !r.q && !r.tmpl) return false;
+    if (s && !r.name.toLowerCase().includes(s)) return false;
+    return true;
+  });
+}
+
+function buildTree(){
+  const vis = visible(), set = new Set(vis.map(r => r.key));
+  const open = !!$('#q').value.trim() || onlyQ;
+  let h = '';
+  if (TREE.claude)
+    h += `<div class="cat" data-open="true"><button class="rec" data-key="__claude"${CUR&&CUR.key==='__claude'?' aria-current="true"':''}><span class="nm">CLAUDE.md</span><span class="qn z">규칙</span></button></div>`;
+  for (const c of TREE.cats){
+    // 양식은 그 카테고리 맨 위에 둔다 — 새 레코드를 만들 때 바로 집어 가도록
+    const kids = c.records.filter(r => set.has(c.id+'/'+r.name));
+    kids.sort((a, b) => (b.tmpl ? 1 : 0) - (a.tmpl ? 1 : 0));
+    h += `<div class="cat" data-open="${open||kids.length<=60}"><button class="cathead"><span class="tw">▾</span><span>${esc(c.id)}</span><span class="cn">${kids.length}</span></button><div class="kids">`;
+    if (!kids.length) h += `<div class="empty">${c.id==='06_인력'?'레코드 없음':'표시할 레코드 없음'}</div>`;
+    for (const r of kids){
+      const cls = 'rec'+(r.ex?' tmpl ex':r.tmpl?' tmpl':'');
+      const on = CUR && CUR.key === c.id+'/'+r.name;
+      const lk = LOCKS[c.id+'/'+r.name];
+      h += `<button class="${cls}" data-key="${esc(c.id+'/'+r.name)}"${on?' aria-current="true"':''}>`
+         + `<span class="nm">${esc(r.name)}</span>`
+         + (lk ? `<span class="lk${lk.mine?' mine':''}" title="${esc(lk.who)} 편집 중">✎</span>` : '')
+         + `<span class="qn${r.q?'':' z'}">${r.q||'✓'}</span></button>`;
+    }
+    h += `</div></div>`;
+  }
+  for (const t of TREE.tests){
+    const n = t.groups.reduce((a,g)=>a+g.files.length,0);
+    h += `<div class="cat" data-open="false"><button class="cathead"><span class="tw">▾</span><span>${esc(t.name)}</span><span class="cn">${n}</span></button><div class="kids">`;
+    for (const g of t.groups){
+      h += `<div class="empty">${esc(g.name)}</div>`;
+      for (const f of g.files) h += `<div class="tfile">${esc(f)}</div>`;
+    }
+    h += `</div></div>`;
+  }
+  $('#tree').innerHTML = h;
+  $('#hits').textContent = `${vis.length}건`;
+}
+
+function renderSecs(r){
+  return r.secs.map((s, i) => {
+    if (s.is_info){
+      return `<div class="sech">${esc(s.head)}</div><div class="fields">` + r.fields.map((f, n) =>
+        `<div class="fld"><label for="f${n}">${esc(f.label)}</label>`
+        + `<textarea id="f${n}" data-fi="${n}" rows="1">${esc(f.value)}</textarea></div>`).join('')
+        + `</div>`;
+    }
+    return `<div class="sec"><div class="sech">${esc(s.head)}</div>`
+      + `<textarea data-si="${i}" rows="8">${esc(s.body)}</textarea></div>`;
+  }).join('');
+}
+
+function autosize(ta){ ta.style.height = 'auto'; ta.style.height = (ta.scrollHeight + 2) + 'px'; }
+
+async function show(key, mode){
+  if (dirty && !confirm('저장하지 않은 수정이 있습니다. 버리고 넘어갈까요?')) return;
+  if (dirty && CUR && CUR.cat) releaseLock(CUR.cat, CUR.name);
+  dirty = false; stopBeat();
+  if (key === '__claude'){
+    CUR = {key, name:'CLAUDE.md', ro:true, raw:TREE.claude, full:TREE.root + '\\CLAUDE.md'};
+    $('#view').innerHTML = `<div class="vhead"><h2>CLAUDE.md</h2>`
+      + `<div class="pathrow"><code>${esc(CUR.full)}</code></div>`
+      + `<div class="tmplbar">작성 규칙 문서입니다. 편집기에서는 읽기만 합니다.</div></div>`
+      + `<div class="doc">${TREE.claudeHtml || ''}</div>`;
+    buildTree(); return;
+  }
+  const [cat, ...rest] = key.split('/');
+  const name = rest.join('/');
+  const res = await fetch(`/api/record?cat=${encodeURIComponent(cat)}&name=${encodeURIComponent(name)}`);
+  const r = await res.json();
+  if (r.error){ $('#view').innerHTML = `<div class="errs">${esc(r.error)}</div>`; return; }
+  r.key = key; CUR = r;
+  render(mode === 'edit');
+  buildTree();
+  const el = $(`.rec[data-key="${CSS.escape(key)}"]`);
+  if (el) el.scrollIntoView({block:'nearest'});
+}
+
+function head(r, editing){
+  const meta = FLAT.find(x => x.key === r.key) || {};
+  let h = `<div class="vhead"><h2>${esc(r.name)}</h2>`
+    + `<div class="pathrow"><code id="pv">${esc(r.full)}</code>`
+    + `<button class="btn" id="cpy">경로 복사</button>`;
+  const lk = r.lock;
+  if (!editing){
+    if (lk && !lk.mine && !lk.stale)
+      h += `<button class="btn" id="edit" disabled>편집 중</button>`;
+    else
+      h += `<button class="btn go" id="edit">수정하기</button>`;
+  }
+  h += `</div>`;
+  if (meta.subs && meta.subs.length)
+    h += `<div class="subs">` + meta.subs.map(s =>
+      `<span class="sub${s.n?' has':''}">${esc(s.name)}${s.n?' '+s.n:' 비어 있음'}</span>`).join('') + `</div>`;
+  if (lk && !lk.mine && !lk.stale)
+    h += `<div class="lockbar other"><b>${esc(lk.who)}</b> 님이 ${mins(lk.age)} 전부터 편집 중입니다.`
+       + `<button class="btn" id="steal">잠금 가져오기</button></div>`;
+  else if (lk && lk.stale)
+    h += `<div class="lockbar other"><b>${esc(lk.who)}</b> 님의 잠금이 ${mins(lk.age)}째 멈춰 있습니다. 가져다 쓸 수 있습니다.</div>`;
+  else if (editing)
+    h += `<div class="lockbar mine">내가 편집 중입니다. 저장하거나 취소할 때까지 다른 사람은 못 고칩니다.</div>`;
+  if (r.name.startsWith('_'))
+    h += `<div class="tmplbar">빈 양식입니다. 새 레코드를 만들 때 복사해 쓰세요.</div>`;
+  if (r.q) h += `<div class="warnbar"><b>${r.q}</b>곳이 (확인 필요)로 비어 있습니다</div>`;
+  return h + `</div>`;
+}
+
+function mins(sec){
+  if (sec < 60) return '방금';
+  const m = Math.round(sec/60);
+  return m < 60 ? `${m}분` : `${Math.round(m/60)}시간`;
+}
+
+function navRow(key){
+  const vis = visible(), i = vis.findIndex(x => x.key === key);
+  const pv = i > 0 ? vis[i-1] : null, nx = i >= 0 && i < vis.length-1 ? vis[i+1] : null;
+  return `<div class="nav2">`
+    + `<button class="btn" ${pv?`data-go="${esc(pv.key)}"`:'disabled'}>← ${pv?esc(pv.name):'처음'}</button>`
+    + `<button class="btn" ${nx?`data-go="${esc(nx.key)}"`:'disabled'}>${nx?esc(nx.name):'마지막'} →</button></div>`;
+}
+
+function render(editing){
+  const r = CUR;
+  let h = head(r, editing);
+  if (editing){
+    h += `<form id="ed" autocomplete="off">` + renderSecs(r) + `</form>`
+      + `<div class="savebar"><button class="btn go" id="save" disabled>저장</button>`
+      + `<button class="btn" id="cancel">취소</button>`
+      + `<span class="msg" id="msg">고치면 저장 버튼이 켜집니다. 섹션 제목과 「출처」 줄은 건드리지 않습니다.</span></div>`
+      + `<div id="out"></div>`;
+  } else {
+    h += `<div class="doc">${r.html || ''}</div>`;
+  }
+  h += navRow(r.key);
+  $('#view').innerHTML = h;
+  $('#view').classList.toggle('editing', !!editing);
+  $('#view').scrollTop = 0;
+
+  $('#cpy').onclick = async () => {
+    try { await navigator.clipboard.writeText(r.full); $('#cpy').textContent = '복사됨'; }
+    catch { $('#cpy').textContent = '복사 실패'; }
+    setTimeout(() => $('#cpy').textContent = '경로 복사', 1500);
+  };
+  const eb = $('#edit'); if (eb && !eb.disabled) eb.onclick = () => startEdit(false);
+  const sb = $('#steal'); if (sb) sb.onclick = () => {
+    if (confirm('다른 사람이 편집 중입니다. 잠금을 가져오면 그쪽은 저장하지 못합니다. 가져올까요?'))
+      startEdit(true);
+  };
+  if (editing){
+    $('#ed').querySelectorAll('textarea').forEach(ta => {
+      autosize(ta);
+      ta.addEventListener('input', () => {
+        autosize(ta); ta.classList.add('dirty'); dirty = true;
+        $('#save').disabled = false;
+      });
+    });
+    $('#save').onclick = doSave;
+    $('#cancel').onclick = async () => {
+      if (dirty && !confirm('고친 내용을 버릴까요?')) return;
+      dirty = false; stopBeat();
+      await releaseLock(r.cat, r.name);
+      await show(r.key);
+    };
+  }
+  $('#view').querySelectorAll('[data-go]').forEach(b =>
+    b.addEventListener('click', () => show(b.dataset.go)));
+}
+
+let beatTimer = null;
+function stopBeat(){ if (beatTimer){ clearInterval(beatTimer); beatTimer = null; } }
+
+async function post(path, body){
+  return (await fetch(path, {method:'POST', headers:{'Content-Type':'application/json'},
+                             body: JSON.stringify(body)})).json();
+}
+async function releaseLock(cat, name){
+  try { await post('/api/unlock', {cat, name}); } catch(_){}
+}
+
+async function startEdit(steal){
+  if (!askWho(false)){
+    alert('이름을 적어야 편집할 수 있습니다. 다른 사람이 누가 보고 있는지 알아야 하니까요.');
+    return;
+  }
+  const r = CUR;
+  const res = await post('/api/lock', {cat:r.cat, name:r.name, steal: !!steal});
+  if (!res.ok){
+    r.lock = res.lock; render(false);
+    alert(`${res.lock.who} 님이 편집 중이라 지금은 고칠 수 없습니다.`);
+    return;
+  }
+  // 잠근 뒤 최신 내용으로 다시 읽는다 — 그 사이 누가 고쳤을 수 있다
+  const fresh = await (await fetch(`/api/record?cat=${encodeURIComponent(r.cat)}`
+    + `&name=${encodeURIComponent(r.name)}`)).json();
+  fresh.key = r.key; CUR = fresh;
+  render(true);
+  stopBeat();
+  beatTimer = setInterval(() => post('/api/beat', {cat:r.cat, name:r.name}), 60000);
+}
+
+async function doSave(){
+  const btn = $('#save'); btn.disabled = true;
+  $('#msg').textContent = '저장 중…'; $('#msg').className = 'msg';
+  const fields = CUR.fields.map((f, n) => ({label:f.label,
+    value: $(`#ed [data-fi="${n}"]`).value.replace(/\s*\n\s*/g, ' ').trim()}));
+  const secs = [];
+  $('#ed').querySelectorAll('[data-si]').forEach(ta => {
+    const i = +ta.dataset.si;
+    secs.push({i, head: CUR.secs[i].head, body: ta.value});
+  });
+  const res = await fetch('/api/save', {method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({cat:CUR.cat, name:CUR.name, mtime:CUR.mtime, fields, secs})});
+  const j = await res.json();
+  const out = $('#out');
+  if (j.ok){
+    dirty = false; stopBeat();
+    let x = `저장했습니다 — K드라이브에 반영됐습니다. 백업 ${j.backup}`;
+    if (j.index && j.index.length) x += ` · index.md 갱신: ${j.index.join(' · ')}`;
+    if (j.warnings && j.warnings.length) x += ` · 살펴볼 것: ${j.warnings.join(' · ')}`;
+    await refresh(false);
+    await show(CUR.key);
+    const m = document.createElement('div');
+    m.className = 'okbox'; m.textContent = x;
+    $('#view').insertBefore(m, $('#view').querySelector('.doc'));
+  } else {
+    btn.disabled = false;
+    $('#msg').textContent = j.lock !== undefined && !j.stale ? (j.errors||[''])[0] : j.stale ? '저장하지 않았습니다 — 파일이 밖에서 바뀌었습니다.'
+                                    : '저장하지 않았습니다 — 아래를 고쳐 주세요.';
+    $('#msg').className = 'msg bad';
+    out.innerHTML = `<div class="errs"><strong>검사에 걸렸습니다</strong><ul>`
+      + (j.errors||[]).map(e => `<li>${esc(e)}</li>`).join('') + `</ul></div>`;
+  }
+}
+
+async function refresh(redraw, force){
+  TREE = await (await fetch('/api/tree' + (force ? '?force=1' : ''))).json();
+  try { LOCKS = (await (await fetch('/api/locks')).json()).locks || {}; } catch(_){ LOCKS = {}; }
+  if (TREE.claude && !TREE.claudeHtml){
+    TREE.claudeHtml = `<pre style="white-space:pre-wrap;font-family:var(--mono);font-size:.78rem;line-height:1.7">`
+      + esc(TREE.claude) + `</pre>`;
+  }
+  FLAT = flatten(TREE);
+  $('#rootp').textContent = TREE.root;
+  buildTree();
+  if (redraw && FLAT.length && !CUR) show(TREE.claude ? '__claude' : FLAT[0].key);
+}
+
+$('#tree').addEventListener('click', e => {
+  const ch = e.target.closest('.cathead');
+  if (ch){ const c = ch.parentElement; c.dataset.open = c.dataset.open === 'true' ? 'false' : 'true'; return; }
+  const rb = e.target.closest('.rec');
+  if (rb) show(rb.dataset.key);
+});
+let tmr;
+$('#q').addEventListener('input', () => { clearTimeout(tmr); tmr = setTimeout(buildTree, 140); });
+const tog = (id, get, set) => $(id).addEventListener('click', () => {
+  set(!get()); $(id).setAttribute('aria-pressed', String(get())); buildTree(); });
+tog('#tgq', () => onlyQ, v => onlyQ = v);
+$('#whoBtn').addEventListener('click', async () => { askWho(true); await refresh(false); if (CUR && CUR.cat) show(CUR.key); });
+$('#tgr').addEventListener('click', async () => {
+  const b = $('#tgr'); b.disabled = true; b.textContent = '읽는 중…';
+  try {
+    await refresh(false, true);
+    if (CUR && CUR.key !== '__claude') { dirty = false; await show(CUR.key); }
+  } finally { b.disabled = false; b.textContent = '새로 읽기'; }
+});
+addEventListener('beforeunload', e => {
+  if (CUR && CUR.cat && beatTimer){
+    try { navigator.sendBeacon('/api/unlock',
+      new Blob([JSON.stringify({cat:CUR.cat, name:CUR.name})], {type:'application/json'})); } catch(_){}
+  }
+  if (dirty){ e.preventDefault(); e.returnValue = ''; }
+});
+// 다른 사람의 편집 상태를 주기적으로 가져와 트리에 표시
+setInterval(async () => {
+  try { LOCKS = (await (await fetch('/api/locks')).json()).locks || {}; buildTree(); } catch(_){}
+}, 45000);
+addEventListener('keydown', e => {
+  if ((e.ctrlKey||e.metaKey) && e.key === 's'){ e.preventDefault();
+    const b = $('#save'); if (b && !b.disabled) doSave(); }
+});
+loadWho();
+$('#whoBtn').textContent = ME || '이름 설정';
+refresh(true).catch(e => {
+  $('#tree').innerHTML = `<div class="empty">읽기 실패</div>`;
+  $('#view').innerHTML = `<div class="errs"><strong>지식시스템을 읽지 못했습니다</strong>`
+    + `<ul><li>${esc(e && e.message || e)}</li></ul>`
+    + `<p>서버 창에 오류가 찍혔는지 보고, K드라이브가 연결돼 있는지 확인하세요.</p></div>`;
+});
+</script>
+</body>
+</html>
