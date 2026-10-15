@@ -110,14 +110,19 @@ def parse(body):
         if (len(rows) >= 2 and lines[rows[0]].count('|') == 3
                 and lines[rows[0]].split('|')[1].strip() == '항목'):
             info_idx = n
-            for k in rows[1:]:
-                if lines[k].count('|') != 3:
-                    continue
-                p = lines[k].split('|')
-                fields.append({'label': p[1].strip(), 'value': p[2].strip(), 'line': k})
-            lo, hi = rows[0], rows[-1]
+            # 표는 파이프 줄이 끊기지 않고 이어지는 데까지다.
+            # 섹션의 마지막 파이프 줄까지 잡으면 그 사이의 메모나 두 번째 표를
+            # 저장할 때 통째로 지워 버린다.
+            lo = hi = rows[0]
             while hi + 1 < s['hi'] and lines[hi + 1].startswith('|'):
                 hi += 1
+            for k in range(lo + 1, hi + 1):
+                if lines[k].count('|') != 3:
+                    continue
+                if not set(lines[k].replace('|', '').replace('-', '').replace(':', '').strip()):
+                    continue        # 구분선
+                p = lines[k].split('|')
+                fields.append({'label': p[1].strip(), 'value': p[2].strip(), 'line': k})
             tbl = (lo, hi)
             break
 
@@ -198,8 +203,8 @@ def validate(cat, p, text):
         if ncol is None:
             ncol, blk = c, n
         elif c != ncol:
-            errs.append('%d행: 표 열 수가 위(%d개 칸)와 다릅니다 — %s'
-                        % (n, ncol - 1, ln[:50]))
+            errs.append('%d행: 표 열 수가 %d행에서 시작한 표(%d개 칸)와 다릅니다 — %s'
+                        % (n, blk, ncol - 1, ln[:50]))
 
     heads = [s['head'] for s in p['secs']]
     if len(heads) != len(set(heads)):
@@ -402,6 +407,10 @@ def md_html(text):
                         continue
                     break
                 if not re.match(r'^\s*[-*·•]\s', cur):
+                    # 제목·표·인용은 목록의 보조 줄이 아니다. 빈 줄 없이 이어져도
+                    # 삼키면 그 섹션이 통째로 사라진 것처럼 보인다.
+                    if re.match(r'^\s*(#{1,6}\s|\||>)', cur):
+                        break
                     if items:
                         items[-1][1].append(cs)
                         i += 1
@@ -482,20 +491,30 @@ def lock_take(cat, name, who, steal=False):
     rec = {'who': who, 'at': time.time(), 'beat': time.time(),
            'cat': cat, 'name': name}
     blob = json.dumps(rec, ensure_ascii=False).encode('utf-8')
+
+    # 끊긴 잠금을 가져올 때도 그냥 덮어쓰면, 둘이 동시에 가져갈 경우
+    # 둘 다 "내 것" 으로 믿고 편집에 들어간다. 지우고 O_EXCL 로 다시 만들어
+    # 한 사람만 이기게 한다.
     if cur:
-        open(fp, 'wb').write(blob)
-    else:
         try:
-            fd = os.open(fp, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError:
-            again = lock_read(cat, name, who)
-            if again and not again['mine'] and not again['stale']:
-                return {'ok': False, 'lock': again}
-            open(fp, 'wb').write(blob)
-            return {'ok': True, 'lock': lock_read(cat, name, who)}
-        with os.fdopen(fd, 'wb') as f:
-            f.write(blob)
-    return {'ok': True, 'lock': lock_read(cat, name, who)}
+            os.remove(fp)
+        except OSError:
+            pass
+    try:
+        fd = os.open(fp, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        again = lock_read(cat, name, who)
+        if again and not again['mine']:
+            return {'ok': False, 'lock': again}   # 경쟁에서 졌다
+        return {'ok': True, 'lock': again}
+    with os.fdopen(fd, 'wb') as f:
+        f.write(blob)
+
+    # 쓴 뒤 다시 읽어 내가 주인인지 확인한다
+    back = lock_read(cat, name, who)
+    if not back or not back['mine']:
+        return {'ok': False, 'lock': back}
+    return {'ok': True, 'lock': back}
 
 
 def lock_beat(cat, name, who):
@@ -550,6 +569,11 @@ def backup(fp, cat, name):
     os.makedirs(d, exist_ok=True)
     stamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
     dst = os.path.join(d, stamp + '.md')
+    # 초 단위라 같은 초에 두 번 저장하면 직전 백업을 덮는다. 번호를 붙인다.
+    k = 1
+    while os.path.exists(dst):
+        dst = os.path.join(d, '%s-%d.md' % (stamp, k))
+        k += 1
     shutil.copy2(fp, dst)
     keep = sorted(glob.glob(d + '/*.md'))
     for old in keep[:-30]:
@@ -722,11 +746,24 @@ def update_once():
 
 
 def updater(every):
+    blocked = 0
     while True:
         time.sleep(every)
         try:
-            if locks_all():
-                continue          # 누가 편집 중이면 다음 차례에
+            held = locks_all()
+            if held:
+                # 누가 편집 중이면 다음 차례에. 다만 편집 화면을 열어 둔 채
+                # 자리를 비우면 하트비트가 잠금을 계속 살려서 갱신이 영영 막힌다.
+                # 한 시간 넘게 막히면 누가 잡고 있는지 알린다.
+                blocked += every
+                if blocked >= 3600:
+                    who = ', '.join(sorted({v.get('who') or '?' for v in held.values()}))
+                    print('  ** 자동 갱신이 %d분째 막혀 있습니다 — %s 님이 편집 중입니다.'
+                          % (blocked // 60, who))
+                    print('     편집 화면을 열어 둔 채 자리를 비운 것일 수 있습니다.')
+                    blocked = 0
+                continue
+            blocked = 0
             if update_once():
                 print('  [자동 갱신] 새 코드로 다시 뜹니다.')
                 RESTART['want'] = True
@@ -764,8 +801,11 @@ class H(SimpleHTTPRequestHandler):
         super().__init__(*a, directory=HERE, **kw)
 
     def log_message(self, fmt, *args):
-        if '/api/' in (args[0] if args else ''):
-            sys.stderr.write('  %s\n' % (args[0] if args else ''))
+        # send_error 는 여기에 HTTPStatus 를 넘긴다. 문자열로 단정하면
+        # 404 가 날 때마다 TypeError 로 응답 없이 연결이 끊긴다.
+        first = args[0] if args else ''
+        if isinstance(first, str) and '/api/' in first:
+            sys.stderr.write('  %s\n' % first)
 
     def who(self):
         import urllib.parse as _u
@@ -805,18 +845,28 @@ class H(SimpleHTTPRequestHandler):
             except Exception as e:
                 return self._json({'error': str(e)}, 500)
         if u.path == '/api/record':
-            q = parse_qs(u.query)
-            cat = unquote(q.get('cat', [''])[0])
-            name = unquote(q.get('name', [''])[0])
-            r = load(cat, name)
-            if r:
-                r['html'] = md_html(r['raw'])
-                r['lock'] = lock_read(cat, name, self.who())
-                r['me'] = self.who()
-            return self._json(r or {'error': '없는 레코드'}, 200 if r else 404)
+            try:
+                q = parse_qs(u.query)
+                cat = unquote(q.get('cat', [''])[0])
+                name = unquote(q.get('name', [''])[0])
+                if cat not in dict((c, f) for c, _, f in CATS):
+                    return self._json({'error': '없는 카테고리: %s' % cat}, 404)
+                r = load(cat, name)
+                if r:
+                    r['html'] = md_html(r['raw'])
+                    r['lock'] = lock_read(cat, name, self.who())
+                    r['me'] = self.who()
+                return self._json(r or {'error': '없는 레코드'}, 200 if r else 404)
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                return self._json({'error': '레코드를 읽지 못했습니다: %s' % e}, 500)
         if u.path == '/api/locks':
-            me = self.who()
-            return self._json({'me': me, 'locks': locks_all(me), 'ver': version()})
+            try:
+                me = self.who()
+                return self._json({'me': me, 'locks': locks_all(me), 'ver': version()})
+            except Exception as e:
+                return self._json({'error': str(e)}, 500)
         if u.path.startswith('/api/'):
             return self._json({'error': 'unknown'}, 404)
         return super().do_GET()
