@@ -654,6 +654,10 @@ def save(cat, name, payload, who=None):
 # 열어 둔 화면은 버전이 바뀐 것을 보고 알아서 새로 고친다.
 
 RESTART = {'want': False, 'srv': None}
+# 사내 프록시를 거치면 GitHub 응답이 몇 분씩 걸린다. 짧게 잡으면
+# 자동 갱신이 매번 타임아웃으로 조용히 건너뛰어, 영영 최신이 되지 않는다.
+GIT_TIMEOUT = 300
+_UPD = {'fail': 0}
 
 
 def version():
@@ -668,8 +672,9 @@ def version():
     return h.hexdigest()[:12]
 
 
-def _git(*args, timeout=120):
-    return subprocess.run(['git'] + list(args), cwd=HERE, timeout=timeout,
+def _git(*args, timeout=None):
+    return subprocess.run(['git'] + list(args), cwd=HERE,
+                          timeout=timeout or GIT_TIMEOUT,
                           capture_output=True, text=True, encoding='utf-8', errors='replace')
 
 
@@ -681,7 +686,7 @@ def update_once():
         if not _git('remote').stdout.strip():
             return False
         if _git('fetch', '--quiet').returncode != 0:
-            return False
+            raise RuntimeError('git fetch 실패')
         br = _git('rev-parse', '--abbrev-ref', 'HEAD').stdout.strip() or 'HEAD'
         up = _git('rev-parse', '--abbrev-ref', '@{u}').stdout.strip()
         if not up:
@@ -698,9 +703,21 @@ def update_once():
             print('  [자동 갱신] 당기지 못했습니다: %s' % (r.stderr or '').strip()[:120])
             return False
         print('  [자동 갱신] %s → %s 로 올렸습니다.' % (local[:7], remote[:7]))
+        _UPD['fail'] = 0
         return True
+    except subprocess.TimeoutExpired:
+        _UPD['fail'] += 1
+        print('  [자동 갱신] GitHub 응답이 %d초 안에 안 왔습니다 (연속 %d회).'
+              % (GIT_TIMEOUT, _UPD['fail']))
+        if _UPD['fail'] == 3:
+            print('  ** 자동 갱신이 계속 실패합니다. 프록시나 자격증명을 확인하세요.')
+            print('     --git-timeout 으로 더 늘리거나, --no-auto-update 로 끄고 직접 받으세요.')
+        return False
     except Exception as e:
-        print('  [자동 갱신] 건너뜀: %s' % e)
+        _UPD['fail'] += 1
+        print('  [자동 갱신] 건너뜀 (연속 %d회): %s' % (_UPD['fail'], e))
+        if _UPD['fail'] == 3:
+            print('  ** 자동 갱신이 계속 실패합니다. 서버에서 git pull 이 되는지 확인하세요.')
         return False
 
 
@@ -727,6 +744,14 @@ SAVE_LOCK = threading.Lock()
 
 class Server(ThreadingHTTPServer):
     daemon_threads = True
+
+    def handle_error(self, request, client_address):
+        # 브라우저가 탭을 닫으면 끊긴 연결로 보인다. 서버 문제가 아니라
+        # 매번 통째로 찍히면 진짜 오류를 가린다.
+        e = sys.exc_info()[1]
+        if isinstance(e, (ConnectionResetError, ConnectionAbortedError, BrokenPipeError)):
+            return
+        super().handle_error(request, client_address)
     # Windows 에서는 이걸 켜 두면 이미 떠 있는 편집기가 있어도 또 뜬다.
     # 그러면 요청이 옛 서버로 가 버려서, 고친 게 반영 안 된 것처럼 보인다.
     allow_reuse_address = False
@@ -839,8 +864,12 @@ def main():
                     help='git 으로 스스로 최신 코드를 받지 않는다')
     ap.add_argument('--update-every', type=int, default=600,
                     help='자동 갱신 확인 주기(초). 기본 10분')
+    ap.add_argument('--git-timeout', type=int, default=300,
+                    help='git 한 번에 기다릴 시간(초). 프록시가 느리면 늘린다')
     a = ap.parse_args()
     ROOT = a.root.replace('\\', '/').rstrip('/')
+    global GIT_TIMEOUT
+    GIT_TIMEOUT = a.git_timeout
 
     if not os.path.isdir(ROOT):
         print('지식시스템 폴더를 찾지 못했습니다: %s' % ROOT)
