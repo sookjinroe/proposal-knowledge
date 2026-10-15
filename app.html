@@ -524,6 +524,26 @@ function selEl(root, tag){
   return null;
 }
 
+// 커서 자리에 넣는다. 커서가 글상자 밖이면 맨 끝에 붙인다
+function putAtCaret(rich, el){
+  const s = getSelection();
+  let r = null;
+  if (s && s.rangeCount){
+    const t = s.getRangeAt(0);
+    if (rich.contains(t.commonAncestorContainer)) r = t;
+  }
+  if (r){ r.deleteContents(); r.insertNode(el); }
+  else rich.appendChild(el);
+  placeAfter(el);
+}
+
+// 넣은 것 바로 뒤에 커서를 둔다. 안에 두면 이어 치는 글자가 같이 물든다
+function placeAfter(el){
+  const r = document.createRange();
+  r.setStartAfter(el); r.collapse(true);
+  const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+}
+
 function place(el){
   const r = document.createRange();
   r.selectNodeContents(el); r.collapse(false);
@@ -543,9 +563,12 @@ function cmd(rich, what){
     c.textContent = t;
     s.getRangeAt(0).deleteContents();
     s.getRangeAt(0).insertNode(c);
-    place(c);
+    placeAfter(c);
   } else if (what === 'note'){
-    document.execCommand('insertText', false, '(확인 필요)');
+    // execCommand('insertText') 는 자리에 따라 그냥 아무 일도 안 한다. 직접 끼운다
+    const n = document.createElement('span');
+    n.className = 'q'; n.textContent = '(확인 필요)';
+    putAtCaret(rich, n);
   }
 }
 
