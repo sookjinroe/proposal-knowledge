@@ -344,7 +344,9 @@ def _inline(s):
     s = re.sub(r'`([^`]+)`', r'<code>\1</code>', s)
     s = re.sub(r'\*\*([^*]+)\*\*', r'<strong>\1</strong>', s)
     s = re.sub(r'(?<!\*)\*([^*\n]+)\*(?!\*)', r'<em>\1</em>', s)
-    s = re.sub(r'\[\[([^\]]+)\]\]', r'<code>\1</code>', s)
+    # wiki 는 code 와 같은 모양으로 보이지만, 화면에서 고친 뒤 되돌릴 때
+    # [[ ]] 인지 ` ` 인지 가려내야 해서 표시를 남긴다.
+    s = re.sub(r'\[\[([^\]]+)\]\]', r'<code class="wiki">\1</code>', s)
     s = re.sub(r'(\(확인 필요[^)]*\))', r'<span class="q">\1</span>', s)
     return s
 
@@ -403,6 +405,20 @@ def md_html(text, anchor=False):
             out.append(wrap(''.join(h), lo, i - 1, 'table'))
             continue
 
+        # ``` 로 묶은 덩어리 — 조직도처럼 줄 모양 자체가 내용이다.
+        # 문단으로 보면 한 줄로 합쳐져 그림이 무너진다. 그려만 주고 편집은 막는다.
+        if s.startswith('```'):
+            i += 1
+            buf = []
+            while i < len(lines) and not lines[i].strip().startswith('```'):
+                buf.append(lines[i])
+                i += 1
+            if i < len(lines):
+                i += 1
+            out.append(wrap('<pre><code>%s</code></pre>' % _esc('\n'.join(buf)),
+                            lo, i - 1, 'code'))
+            continue
+
         if s.startswith('>'):
             buf = []
             while i < len(lines) and lines[i].strip().startswith('>'):
@@ -415,12 +431,13 @@ def md_html(text, anchor=False):
 
         # 목록 — 들여쓰기로 깊이를 잡는다
         if re.match(r'^[-*·•]\s', s):
-            items, depth = [], []
+            items, depth, gap = [], [], False
             while i < len(lines):
                 cur = lines[i]
                 cs = cur.strip()
                 if not cs:
                     if (i + 1 < len(lines) and re.match(r'^\s*[-*·•]\s', lines[i + 1])):
+                        gap = True       # 항목 사이를 한 줄 띄워 둔 것을 기억한다
                         i += 1
                         continue
                     break
@@ -431,14 +448,19 @@ def md_html(text, anchor=False):
                         break
                     if items:
                         items[-1][1].append(cs)
+                        items[-1][3].append(len(cur) - len(cur.lstrip()))
                         i += 1
                         continue
                     break
                 ind = len(cur) - len(cur.lstrip())
-                items.append([ind, [re.sub(r'^[-*·•]\s+', '', cs)]])
+                # 글머리 기호와 들여쓴 칸 수를 적어 둔다. 화면에서 고친 뒤
+                # 되돌릴 때 원래 모습 그대로 써야 해서다 (· 를 - 로 바꾸면
+                # 손대지 않은 줄까지 달라져 버린다).
+                items.append([ind, [re.sub(r'^[-*·•]\s+', '', cs)], cs[0], [], gap])
+                gap = False
                 i += 1
             lvl, h = [], []
-            for ind, parts in items:
+            for ind, parts, mk, cinds, gap1 in items:
                 while lvl and ind < lvl[-1]:
                     h.append('</ul>')
                     lvl.pop()
@@ -446,8 +468,11 @@ def md_html(text, anchor=False):
                     h.append('<ul>')
                     lvl.append(ind)
                 first = _inline(parts[0])
-                rest = ''.join('<div class="sub">%s</div>' % _inline(x) for x in parts[1:])
-                h.append('<li>%s%s</li>' % (first, rest))
+                rest = ''.join('<div class="sub" data-ind="%d">%s</div>'
+                               % (cinds[k], _inline(x))
+                               for k, x in enumerate(parts[1:]))
+                h.append('<li data-ind="%d" data-mk="%s"%s>%s%s</li>'
+                         % (ind, mk, ' data-gap="1"' if gap1 else '', first, rest))
             h += ['</ul>'] * len(lvl)
             # 목록 끝의 빈 줄은 블록 범위에 넣지 않는다
             hi = i - 1
@@ -456,13 +481,14 @@ def md_html(text, anchor=False):
             out.append(wrap(''.join(h), lo, hi, 'list'))
             continue
 
-        buf = []
+        buf, pind = [], len(ln) - len(ln.lstrip())
         while i < len(lines) and lines[i].strip() and not re.match(
                 r'^\s*([-*·•]\s|\||>|#)', lines[i]):
             buf.append(lines[i].strip())
             i += 1
         if buf:
-            out.append(wrap('<p>%s</p>' % _inline(' '.join(buf)), lo, i - 1, 'para'))
+            out.append(wrap('<p data-ind="%d">%s</p>' % (pind, _inline(' '.join(buf))),
+                            lo, i - 1, 'para'))
         else:
             i += 1
     return '\n'.join(out)
