@@ -854,6 +854,13 @@ class H(SimpleHTTPRequestHandler):
 
 def main():
     global ROOT
+    # 한글 윈도우 콘솔은 기본이 cp949 라서 — 「」 ※ 같은 글자를 못 찍고 죽는다.
+    # .bat 로 켜면 chcp 65001 이 깔리지만, 직접 띄우거나 서비스로 돌리면 그게 없다.
+    for s in (sys.stdout, sys.stderr):
+        try:
+            s.reconfigure(encoding='utf-8', errors='replace')
+        except Exception:
+            pass
     ap = argparse.ArgumentParser()
     ap.add_argument('--port', type=int, default=8777)
     ap.add_argument('--host', default='127.0.0.1',
