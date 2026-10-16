@@ -1076,9 +1076,16 @@ def version():
     return h.hexdigest()[:12]
 
 
+# pythonw 로 띄우면 이 프로세스에는 콘솔이 없다. 그 상태에서 git 같은
+# 콘솔 프로그램을 부르면 윈도우가 **검은 창을 새로 띄운다.**
+# 자동 갱신이 10분마다 도니 10분마다 창이 깜빡였다.
+NO_WINDOW = getattr(subprocess, 'CREATE_NO_WINDOW', 0) if os.name == 'nt' else 0
+
+
 def _git(*args, timeout=None):
     return subprocess.run(['git'] + list(args), cwd=HERE,
                           timeout=timeout or GIT_TIMEOUT,
+                          creationflags=NO_WINDOW,
                           capture_output=True, text=True, encoding='utf-8', errors='replace')
 
 

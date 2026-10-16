@@ -22,7 +22,33 @@ PORT_BUSY = 1           # 이미 켜져 있을 때 — 다시 띄우면 안 된�
 
 TOO_FAST = 20           # 이 안에 죽으면 「바로 죽었다」고 본다
 GIVE_UP_AFTER = 5       # 바로 죽기를 이만큼 되풀이하면 멈춘다
-BUSY_TRIES = 12         # 포트가 풀리기를 기다리는 횟수 (5초씩 — 약 1분)
+BUSY_TRIES = 60         # 포트가 풀리기를 기다리는 횟수 (5초씩 — 5분).
+                        # 브라우저를 열어 둔 채 끊기면 1분으로는 모자랐다
+
+
+def port_of():
+    if '--port' in sys.argv:
+        try:
+            return int(sys.argv[sys.argv.index('--port') + 1])
+        except (IndexError, ValueError):
+            pass
+    return 8777
+
+
+def serving():
+    """그 포트에서 **진짜 편집기가 답하고 있는가.**
+
+    포트가 막혔다고 다 남의 것이 아니다. 방금까지 내가 쓰던 소켓이
+    아직 안 풀린 것일 수도 있다. 둘을 가르지 못하면, 강제로 끊긴 뒤
+    되살아나야 할 때 「남이 켜 둔 것」으로 보고 물러나 버린다.
+    """
+    import urllib.request
+    try:
+        urllib.request.urlopen('http://127.0.0.1:%d/api/locks' % port_of(),
+                               timeout=3).read()
+        return True
+    except Exception:
+        return False
 
 
 def log_path():
@@ -56,7 +82,6 @@ def main():
     env = dict(os.environ, KS_SUPERVISED='1', PYTHONIOENCODING='utf-8')
     quick = 0
     busy = 0
-    served = False      # 한 번이라도 제대로 돈 적이 있는가
     say('편집기를 띄웁니다.')
     while True:
         began = time.time()
@@ -75,8 +100,6 @@ def main():
                 pass
             return 0
         lived = time.time() - began
-        if lived >= TOO_FAST:
-            served = True
 
         if code == RESTART_CODE:
             say('새 코드를 받았습니다. 다시 띄웁니다.')
@@ -84,15 +107,17 @@ def main():
             quick = busy = 0
             continue
         if code == PORT_BUSY:
-            if not served:
-                # 처음부터 포트가 막혀 있다 — 남이 이미 켜 둔 것이다
+            if serving():
+                # 그 포트에서 실제로 편집기가 답한다 — 남이 켜 둔 것이다
                 say('이미 켜져 있는 것 같습니다. 지킴이는 빠집니다.')
                 return 0
-            # 방금까지 내가 쓰던 포트다. 강제로 끊긴 소켓이 풀리는 데
-            # 시간이 걸릴 뿐이니, 남의 것으로 보고 물러나면 안 된다.
+            # 막혀 있는데 아무도 답하지 않는다 — 방금까지 내가 쓰던 소켓이
+            # 아직 안 풀린 것이다. 브라우저를 열어 둔 채 끊기면 꽤 걸린다.
             busy += 1
             if busy > BUSY_TRIES:
-                say('포트 %d초째 풀리지 않습니다. 더 띄우지 않습니다.' % (5 * BUSY_TRIES))
+                say('포트가 %d분째 풀리지 않는데 답하는 편집기도 없습니다. 더 띄우지 않습니다.'
+                    % (5 * BUSY_TRIES // 60))
+                say('「편집기 끄기.bat」 을 한 번 누른 뒤 다시 켜 보세요.')
                 return 1
             if busy == 1:
                 say('쓰던 포트가 아직 풀리지 않았습니다. 풀릴 때까지 기다립니다.')
