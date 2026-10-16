@@ -112,32 +112,6 @@ main.view{overflow:auto;padding:1.4rem 2rem 4rem;min-width:0}
 .tmplbar{margin-top:.5rem;font-size:var(--tx);color:var(--tmpl);background:var(--tmpl-soft);
   border-left:3px solid var(--tmpl);padding:.45rem .7rem}
 
-/* 편집 */
-.fields{display:grid;gap:.4rem;margin-bottom:.4rem}
-.fld{display:grid;grid-template-columns:9.5rem minmax(0,1fr);gap:.5rem;align-items:start}
-@media (max-width:620px){.fld{grid-template-columns:1fr;gap:.15rem}}
-.fld label{font-family:var(--mono);font-size:.7rem;color:var(--muted);padding-top:.42rem;
-  overflow-wrap:anywhere}
-.fld textarea,.sec textarea{font-family:var(--ui);font-size:.84rem;line-height:1.55;color:var(--ink);
-  background:var(--panel);border:1px solid var(--rule);border-radius:3px;padding:.38rem .5rem;
-  width:100%;resize:vertical;min-width:0}
-.fld textarea{min-height:2.3rem}
-.fld textarea:focus,.sec textarea:focus{outline:2px solid var(--accent);outline-offset:-1px}
-.fld textarea.dirty,.sec textarea.dirty{border-color:var(--accent);background:var(--accent-soft)}
-.sec{margin-bottom:1rem}
-.sech{display:flex;align-items:baseline;gap:.5rem;font-family:var(--mono);font-size:.74rem;
-  font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);
-  margin:1.3rem 0 .4rem;padding-bottom:.22rem;border-bottom:1px solid var(--rule)}
-.sech .lock{font-size:.62rem;color:var(--faint);letter-spacing:0;text-transform:none;font-weight:400}
-.sec textarea{min-height:7rem;font-family:var(--mono);font-size:.78rem;line-height:1.7}
-.ro{white-space:pre-wrap;font-family:var(--mono);font-size:.78rem;line-height:1.7;
-  background:var(--panel);border:1px solid var(--rule);border-radius:3px;padding:.5rem .6rem;
-  overflow-x:auto}
-.ro .q,.fld .q{background:var(--warn-soft);color:var(--warn);border-radius:2px;padding:0 .2em}
-table.info{border-collapse:collapse;width:100%;font-size:.84rem}
-table.info td{padding:.32rem .5rem;border-bottom:1px solid var(--rule);vertical-align:top}
-table.info td:first-child{font-family:var(--mono);font-size:.72rem;color:var(--muted);
-  white-space:nowrap;width:1%}
 
 /* 읽기 화면 */
 /* 글은 한 줄 48자쯤에서 끊는다. 창을 넓히면 1230px·98자까지 늘어나
@@ -240,8 +214,6 @@ table.grid td.rowtool .tb{padding:.1rem .3rem;font-size:.8rem;line-height:1}
 .errs{background:var(--bad-soft);border-left:3px solid var(--bad);padding:.55rem .75rem;
   margin-top:.6rem;font-size:.8rem;border-radius:0 2px 2px 0}
 .errs ul{margin:.25rem 0 0;padding-left:1.1rem}
-.okbox{background:var(--ok-soft);border-left:3px solid var(--ok);padding:.5rem .75rem;
-  margin-top:.6rem;font-size:.78rem;border-radius:0 2px 2px 0}
 .nav2{display:flex;justify-content:space-between;gap:.5rem;margin-top:1.4rem;
   padding-top:.7rem;border-top:1px solid var(--rule)}
 .nav2 .btn{max-width:46%;overflow:hidden;text-overflow:ellipsis}
