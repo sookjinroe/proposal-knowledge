@@ -644,6 +644,9 @@ function proseHtml(raw, rendered){
 
 function wireRich(ed){
   const rich = ed.querySelector('.rich');
+  // 열었을 때의 깊이를 적어 둔다. Tab 으로 옮기면 이 값과의 차이로 들여쓴 칸을 민다
+  MDROOT = rich;
+  rich.querySelectorAll('li').forEach(li => { li.dataset.d = liDepth(li); });
   rich.focus();
   rich.addEventListener('input', () => { dirty = true; });
 
@@ -763,12 +766,35 @@ function oneLine(node, skipBlocks){
   return inlineMd(node, skipBlocks).replace(/\s+/g, ' ').trim();
 }
 
-// 새로 만든 항목에는 표시가 없다. 같은 묶음의 형제에게서 물려받는다.
+// 지금 몇 단 깊이에 있는가 (글상자 안의 ul·ol 을 센다)
+let MDROOT = null;
+function liDepth(li){
+  let d = 0, n = li.parentNode;
+  while (n && n !== MDROOT){
+    if (n.tagName === 'UL' || n.tagName === 'OL') d++;
+    n = n.parentNode;
+  }
+  return d;
+}
+
+// data-ind 는 「열었을 때 어디 있었나」다. Tab 으로 옮기면 그 값은 낡는다.
+// 열 때 깊이(data-d)를 같이 적어 두고, 지금 깊이와의 차이만큼 들여쓴 칸을 민다.
+// 이걸 안 하면 화면은 들어가는데 저장되는 글은 그대로다.
 function liInd(li, fallback){
+  const cur = liDepth(li);
+  if (li.dataset.ind !== undefined && li.dataset.d !== undefined)
+    return Math.max(0, +li.dataset.ind + (cur - +li.dataset.d) * 2);
   if (li.dataset.ind !== undefined) return +li.dataset.ind;
-  const sibs = [...li.parentNode.children]
-    .filter(x => x.tagName === 'LI' && x.dataset.ind !== undefined);
-  return sibs.length ? +sibs[0].dataset.ind : fallback;
+  // 새로 만든 항목에는 표시가 없다. 같은 묶음의 형제에게서 물려받는다
+  const sib = [...li.parentNode.children].find(
+    x => x.tagName === 'LI' && x.dataset.ind !== undefined && x.dataset.d !== undefined);
+  if (sib) return Math.max(0, +sib.dataset.ind + (cur - +sib.dataset.d) * 2);
+  return fallback;
+}
+
+// 항목이 열었을 때와 다른 깊이로 옮겨졌는가 (설명 줄의 들여쓰기도 같이 밀린다)
+function liMoved(li){
+  return li.dataset.d !== undefined && liDepth(li) !== +li.dataset.d;
 }
 function liMk(li){
   if (li.dataset.mk) return li.dataset.mk;
@@ -788,7 +814,10 @@ function liMd(li, fallbackInd, out){
     const t = n.tagName.toLowerCase();
     if (t === 'div' && n.classList.contains('sub')){
       const s = oneLine(n, true);
-      if (s) out.push(' '.repeat(n.dataset.ind !== undefined ? +n.dataset.ind : ind + 2) + s);
+      // 항목이 옮겨졌으면 설명 줄도 따라가야 한다. 그대로 두면 설명만 제자리에 남는다
+      const si = (n.dataset.ind !== undefined && !liMoved(li))
+        ? +n.dataset.ind : ind + 2;
+      if (s) out.push(' '.repeat(si) + s);
     } else if (t === 'ul' || t === 'ol'){
       const sub = (u, d) => [...u.children].forEach(c => {
         if (c.tagName === 'LI') liMd(c, d, out);
@@ -801,6 +830,7 @@ function liMd(li, fallbackInd, out){
 
 function domToMd(root){
   const out = [];
+  MDROOT = root;              // 깊이를 셀 때 어디까지가 글상자인지
   // 중첩 목록은 바깥 ul 의 형제로 들어오기도 하고 li 안에 들어오기도 한다. 둘 다 받는다
   const walkList = (ul, ind) => {
     [...ul.children].forEach(c => {
@@ -838,9 +868,14 @@ function domToMd(root){
 }
 
 // ── 표 ──
+// 구분선(|---|---|)은 빼고 읽는다. 다만 「-」 가 있어야 구분선이다 —
+// 빈 행 `|  |  |` 도 [\s:|-] 에 걸려서, 「행 추가」로 만든 빈 줄이 그대로 사라졌다.
+function isSepRow(l){
+  return /^\|[\s:|-]+\|$/.test(l) && l.includes('-');
+}
 function parseTable(raw){
   const rows = raw.filter(l => l.trim().startsWith('|'))
-    .filter(l => !/^\|[\s:|-]+\|$/.test(l.trim()))
+    .filter(l => !isSepRow(l.trim()))
     .map(l => l.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim()));
   const n = Math.max(...rows.map(r => r.length));
   return rows.map(r => { while (r.length < n) r.push(''); return r; });

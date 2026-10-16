@@ -184,7 +184,11 @@ def parse(body):
             for k in range(lo + 1, hi + 1):
                 if lines[k].count('|') != 3:
                     continue
-                if not set(lines[k].replace('|', '').replace('-', '').replace(':', '').strip()):
+                # 구분선은 `-` 가 있어야 구분선이다. 이걸 안 보면 빈 행 `|  |  |` 도
+                # 구분선으로 보고 버려서, 격자로 만든 빈 줄이 파일에 남은 채
+                # 아무 검사에도 안 걸린다.
+                bare = lines[k].replace('|', '').replace(':', '').strip()
+                if bare and not bare.strip('-'):
                     continue        # 구분선
                 p = lines[k].split('|')
                 fields.append({'label': p[1].strip(), 'value': p[2].strip(), 'line': k})
@@ -276,6 +280,17 @@ def validate(cat, p, text):
         errs.append('같은 이름의 섹션이 둘 이상입니다: %s' % heads)
     if not heads:
         errs.append('섹션이 하나도 없습니다.')
+
+    # 정보표에 같은 항목이 두 줄이면 하나만 쓰이고 나머지는 조용히 묻힌다.
+    # 격자에서 「행 추가」를 눌러 같은 이름을 치면 생기는 일이라 막는다.
+    labels = [f['label'] for f in p['fields']]
+    dup = sorted({x for x in labels if labels.count(x) > 1 and x})
+    if dup:
+        errs.append('정보표에 같은 항목이 두 번 있습니다: %s — 한 줄만 남기세요.'
+                    % ', '.join(dup))
+    # 격자에서 「행 추가」만 누르고 비워 둔 줄. 이름 없는 항목은 아무도 못 읽는다
+    if any(not x for x in labels):
+        errs.append('정보표에 항목 이름이 빈 줄이 있습니다 — 이름을 적거나 그 줄을 지우세요.')
 
     return errs, warns
 
@@ -636,9 +651,13 @@ def save_block(cat, name, payload, who=None):
     open(fp, 'w', encoding='utf-8', newline='').write(text)
     with _CACHE_LOCK:
         _CACHE[fp] = (os.path.getmtime(fp), text)
+    # 정보표를 고쳤으면 index.md 의 같은 칸도 맞춘다.
+    # 통째로 저장하는 save() 에만 있어서, 격자로 담당자를 고쳐도
+    # index 는 옛 값을 그대로 들고 있었다.
+    idx = sync_index(cat, name, p['fields']) if p['tbl'] else []
     scan_cached(True)
     return {'ok': True, 'warnings': warns, 'backup': os.path.relpath(bk, HERE),
-            'mtime': os.path.getmtime(fp), 'q': count_q(text)}
+            'index': idx, 'mtime': os.path.getmtime(fp), 'q': count_q(text)}
 
 
 # ─────────────────────────── 잠금 ───────────────────────────
