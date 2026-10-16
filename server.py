@@ -93,6 +93,28 @@ def count_q(body):
     return len(q_spans(body))
 
 
+# 「검토」 — 사람이 직접 보고 보증했는가. 사람만 적을 수 있는 사실이라
+# 내용 완성도(확인 필요 수)와 따로 둔다. 둘을 한 숫자로 뭉치면
+# 「덜 채워졌다」와 「아무도 안 봤다」가 구분되지 않는다.
+REVIEW_ROW = re.compile(r'^\|\s*검토\s*\|(.*?)\|\s*$', re.M)
+
+
+def review_of(body):
+    """검토한 사람·날짜. 칸이 없거나 아직 아무도 안 봤으면 None."""
+    m = REVIEW_ROW.search(body or '')
+    if not m:
+        return None
+    v = m.group(1).strip()
+    if not v or v == '미검토' or v.startswith('(확인'):
+        return None
+    return v
+
+
+def has_review(body):
+    """검토 칸을 쓰는 레코드인가 (칸이 아예 없는 카테고리와 가르기 위해)."""
+    return bool(REVIEW_ROW.search(body or ''))
+
+
 # K: 는 네트워크 드라이브라 파일을 열 때마다 느리다.
 # (경로, 수정시각) 이 그대로면 다시 읽지 않는다.
 _CACHE = {}
@@ -288,6 +310,7 @@ def _one(cat, n, folder_mode, base):
         pass
     return {'name': n, 'q': count_q(body), 'tmpl': n.startswith('_'),
             'ex': '기입례' in n, 'subs': subs,
+            'rev': review_of(body), 'hasrev': has_review(body),
             'path': os.path.relpath(fp, ROOT).replace('/', '\\'), 'mtime': mt}
 
 
@@ -368,7 +391,8 @@ def load(cat, name):
     p.update({'cat': cat, 'name': name, 'raw': body,
               'path': os.path.relpath(fp, ROOT).replace('/', '\\'),
               'full': os.path.join(ROOT, os.path.relpath(fp, ROOT)).replace('/', '\\'),
-              'q': count_q(body), 'mtime': mt})
+              'q': count_q(body), 'mtime': mt,
+              'rev': review_of(body), 'hasrev': has_review(body)})
     return p
 
 

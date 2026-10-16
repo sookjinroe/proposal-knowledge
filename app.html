@@ -107,6 +107,21 @@ main.view{overflow:auto;padding:1.4rem 2rem 4rem;min-width:0}
 .sub{font-family:var(--mono);font-size:var(--tx);border:1px solid var(--rule);border-radius:2px;
   padding:.12rem .4rem;color:var(--faint)}
 .sub.has{color:var(--accent);border-color:var(--accent)}
+/* 등급 — 손으로 매긴 것이 아니라 검토 여부와 빈 곳 수에서 계산한 값 */
+.gradebar{margin-top:.5rem;font-size:var(--tx);display:flex;align-items:baseline;
+  gap:.45rem;flex-wrap:wrap}
+.gradebar b{font-family:var(--mono);font-size:.68rem;border-radius:2px;
+  padding:.1rem .4rem;border:1px solid currentColor;font-weight:600}
+.gradebar span{color:var(--muted)}
+.gradebar em{font-style:normal;color:var(--faint);font-size:.72rem}
+.gradebar.g상{color:var(--ok)}
+.gradebar.g중{color:var(--warn)}
+.gradebar.g하{color:var(--faint)}
+.rec .gd{font-family:var(--mono);font-size:.6rem;border-radius:2px;padding:0 .22rem;
+  border:1px solid currentColor;flex:0 0 auto}
+.rec .gd.g상{color:var(--ok)}
+.rec .gd.g중{color:var(--warn)}
+.rec .gd.g하{color:var(--faint)}
 .warnbar{margin-top:.5rem;font-size:var(--tx);color:var(--warn)}
 .warnbar b{font-family:var(--mono);font-weight:600}
 .tmplbar{margin-top:.5rem;font-size:var(--tx);color:var(--tmpl);background:var(--tmpl-soft);
@@ -322,9 +337,12 @@ function buildTree(){
       const cls = 'rec'+(r.ex?' tmpl ex':r.tmpl?' tmpl':'');
       const on = CUR && CUR.key === c.id+'/'+r.name;
       const lk = LOCKS[c.id+'/'+r.name];
+      const g = r.hasrev && !r.tmpl ? grade(r) : '';
       h += `<button class="${cls}" data-key="${esc(c.id+'/'+r.name)}"${on?' aria-current="true"':''}>`
          + `<span class="nm">${esc(r.name)}</span>`
          + (lk ? `<span class="lk${lk.mine?' mine':''}" title="${esc(lk.who)} 편집 중">✎</span>` : '')
+         + (g ? `<span class="gd g${g}" title="${g==='상'?'검토 완료 · 빈 곳 없음'
+              :g==='중'?(r.rev?'검토됐지만 빈 곳이 남음':'내용은 찼지만 미검토'):'미검토 · 빈 곳 남음'}">${g}</span>` : '')
          + `<span class="qn${r.q?'':' z'}">${r.q||'✓'}</span></button>`;
     }
     h += `</div></div>`;
@@ -395,7 +413,25 @@ function head(r, editing){
   if (r.name.startsWith('_'))
     h += `<div class="tmplbar">빈 양식입니다. 새 레코드를 만들 때 복사해 쓰세요.</div>`;
   if (r.q) h += `<div class="warnbar"><b>${r.q}</b>곳이 (확인 필요)로 비어 있습니다</div>`;
+  if (r.hasrev){
+    const g = grade(r);
+    h += `<div class="gradebar g${g}"><b>${g}</b>`
+      + (r.rev ? `<span>${esc(r.rev)} 님이 직접 보고 확인했습니다</span>`
+               : `<span>아직 아무도 직접 보지 않았습니다 — 컨플루언스에서 모은 내용입니다</span>`)
+      + (g === '상' ? '' : `<em>${g === '중'
+          ? (r.rev ? '남은 (확인 필요)를 채우면 상' : '검토를 받으면 상')
+          : '내용을 채우고 검토까지 받으면 상'}</em>`)
+      + `</div>`;
+  }
   return h + `</div>`;
+}
+
+// 등급은 손으로 매기지 않는다 — 두 가지 사실에서 계산한다.
+//   검토됐나 (사람만 아는 것) · 확인 필요가 남았나 (내용에서 세는 것)
+// 둘 다면 상, 하나면 중, 둘 다 아니면 하. 경계값을 정할 일이 없다.
+function grade(r){
+  const done = !!r.rev, full = !r.q;
+  return done && full ? '상' : (done || full) ? '중' : '하';
 }
 
 function mins(sec){
