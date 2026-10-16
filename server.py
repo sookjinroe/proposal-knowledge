@@ -962,6 +962,53 @@ def new_record(cat, name, who):
             'path': os.path.relpath(fp, ROOT), 'q': count_q(text)}
 
 
+def set_review(cat, name, who, clear=False):
+    """「검토」 칸에 이름과 날짜를 적는다 (또는 지운다).
+
+    버튼 한 번으로 끝나야 꼴이 흐트러지지 않는다. 손으로 치면 사람마다
+    「노숙진」, 「노숙진 10/16」, 「10월 16일 확인」 처럼 제각각이 된다.
+    """
+    if cat not in dict((c, f) for c, _, f in CATS):
+        return {'ok': False, 'errors': ['그런 카테고리가 없습니다.']}
+    fm = dict((c, f) for c, _, f in CATS)[cat]
+    fp = rec_path(cat, name, fm)
+    if not fp or not os.path.exists(fp):
+        return {'ok': False, 'errors': ['레코드를 찾지 못했습니다.']}
+
+    who = clean_who(who)
+    if who == '이름 없음':
+        return {'ok': False,
+                'errors': ['이름을 먼저 적어 주세요. 누가 봤는지가 검토의 전부입니다.']}
+
+    cur = lock_read(cat, name, who)
+    if cur and not cur['mine'] and not cur['stale']:
+        return {'ok': False, 'lock': cur,
+                'errors': ['%s 님이 편집 중이라 지금은 바꿀 수 없습니다.' % cur['who']]}
+
+    body, _ = read_cached(fp)
+    if body is None:
+        return {'ok': False, 'errors': ['레코드를 읽지 못했습니다.']}
+    lines = body.split('\n')
+    at = next((i for i, l in enumerate(lines) if REVIEW_ROW.match(l)), None)
+    if at is None:
+        return {'ok': False, 'errors': ['이 레코드에는 검토 칸이 없습니다.']}
+
+    val = '미검토' if clear else '%s %s' % (
+        who, datetime.date.today().strftime('%Y-%m-%d'))
+    row = '| 검토 | %s |' % val
+    text = body
+    if lines[at] != row:
+        backup(fp, cat, name)
+        lines[at] = row
+        text = '\n'.join(lines)
+        open(fp, 'w', encoding='utf-8', newline='').write(text)
+        with _CACHE_LOCK:
+            _CACHE[fp] = (os.path.getmtime(fp), text)
+        scan_cached(True)
+    return {'ok': True, 'rev': review_of(text), 'q': count_q(text),
+            'mtime': os.path.getmtime(fp)}
+
+
 def del_record(cat, name, who):
     """레코드를 지운다 — 정확히는 `_지운것` 으로 옮긴다.
 
@@ -1208,13 +1255,24 @@ class H(SimpleHTTPRequestHandler):
         from urllib.parse import urlparse
         u = urlparse(self.path)
         if u.path not in ('/api/save', '/api/block', '/api/lock',
-                          '/api/unlock', '/api/beat', '/api/new', '/api/del'):
+                          '/api/unlock', '/api/beat', '/api/new', '/api/del',
+                          '/api/review'):
             return self._json({'error': 'unknown'}, 404)
         n = int(self.headers.get('Content-Length', 0))
         try:
             body = json.loads(self.rfile.read(n).decode('utf-8'))
         except Exception as e:
             return self._json({'ok': False, 'errors': ['요청을 읽지 못했습니다: %s' % e]}, 400)
+
+        if u.path == '/api/review':
+            try:
+                with SAVE_LOCK:
+                    return self._json(set_review(body.get('cat'), body.get('name'),
+                                                 self.who(), bool(body.get('clear'))))
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                return self._json({'ok': False, 'errors': ['처리 중 오류: %s' % e]}, 500)
 
         if u.path in ('/api/new', '/api/del'):
             fn = new_record if u.path == '/api/new' else del_record

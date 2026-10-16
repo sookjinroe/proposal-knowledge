@@ -398,6 +398,11 @@ function head(r, editing){
       h += `<button class="btn" id="edit" disabled>편집 중</button>`;
     else
       h += `<button class="btn go" id="edit">수정하기</button>`;
+    // 검토는 한 번 눌러 끝나야 꼴이 흐트러지지 않는다
+    if (r.hasrev && !r.name.startsWith('_'))
+      h += r.rev
+        ? `<button class="btn" id="unrev" title="${esc(r.rev)}">검토 해제</button>`
+        : `<button class="btn" id="rev">검토 완료</button>`;
   }
   h += `</div>`;
   if (meta.subs && meta.subs.length)
@@ -472,6 +477,8 @@ function render(editing){
     setTimeout(() => $('#cpy').textContent = '경로 복사', 1500);
   };
   const eb = $('#edit'); if (eb && !eb.disabled) eb.onclick = () => startEdit(false);
+  const rv = $('#rev'); if (rv) rv.onclick = () => setReview(false);
+  const uv = $('#unrev'); if (uv) uv.onclick = () => setReview(true);
   const sb = $('#steal'); if (sb) sb.onclick = () => {
     if (confirm('다른 사람이 편집 중입니다. 잠금을 가져오면 그쪽은 저장하지 못합니다. 가져올까요?'))
       startEdit(true);
@@ -921,6 +928,26 @@ $('#tree').addEventListener('click', e => {
   const rb = e.target.closest('.rec');
   if (rb) show(rb.dataset.key);
 });
+
+// ── 검토 표시 ──
+async function setReview(clear){
+  const r = CUR;
+  if (!r || !r.cat) return;
+  if (!askWho(false)){
+    alert('이름을 먼저 적어 주세요. 누가 봤는지가 검토의 전부입니다.');
+    return;
+  }
+  if (!clear && !confirm(`「${r.name}」 을 직접 보고 내용이 맞다고 확인하셨습니까?\n\n`
+    + `${ME} 님의 이름과 오늘 날짜가 검토 칸에 적힙니다.\n`
+    + `이 레코드는 컨플루언스에서 모은 내용이라, 사람이 한 번 본 것과는 무게가 다릅니다.`))
+    return;
+  if (clear && !confirm(`「${r.name}」 의 검토 표시를 지울까요?\n\n지금: ${r.rev}`)) return;
+
+  const j = await post('/api/review', {cat: r.cat, name: r.name, clear: !!clear});
+  if (!j.ok){ alert((j.errors || ['바꾸지 못했습니다'])[0]); return; }
+  await refresh(false);
+  await show(r.key);
+}
 
 // ── 레코드 만들기·지우기 ──
 async function addRecord(cat){
