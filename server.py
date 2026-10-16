@@ -296,8 +296,10 @@ def scan():
             tests.append({'name': d, 'groups': groups})
 
     cm = os.path.join(ROOT, 'CLAUDE.md')
+    ctext = read_cached(cm)[0]
+    # 레코드와 같은 모양으로 그려 준다. 읽기 전용이라 줄 번호는 심지 않는다.
     return {'cats': cats, 'tests': tests, 'root': ROOT.replace('/', '\\'),
-            'claude': read_cached(cm)[0]}
+            'claude': ctext, 'claudeHtml': md_html(ctext) if ctext else ''}
 
 
 # 스캔 결과도 들고 있는다. 「새로 읽기」 를 누르면 다시 훑는다.

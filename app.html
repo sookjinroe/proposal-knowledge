@@ -796,7 +796,7 @@ async function saveBlock(b, kind, ed){
     const m = $('#msg');
     if (m){ m.textContent = '저장했습니다 — K드라이브에 반영됐습니다. 백업 ' + j.backup;
             m.className = 'msg ok'; }
-    await refresh(false);
+    await refresh();
   } else {
     sv.disabled = false;
     msg.textContent = (j.errors || ['저장하지 못했습니다'])[0];
@@ -836,17 +836,14 @@ async function startEdit(steal){
   beatTimer = setInterval(() => post('/api/beat', {cat:r.cat, name:r.name}), 60000);
 }
 
-async function refresh(redraw, force){
+async function refresh(force){
   TREE = await (await fetch('/api/tree' + (force ? '?force=1' : ''))).json();
   try { LOCKS = (await (await fetch('/api/locks')).json()).locks || {}; } catch(_){ LOCKS = {}; }
-  if (TREE.claude && !TREE.claudeHtml){
-    TREE.claudeHtml = `<pre style="white-space:pre-wrap;font-family:var(--mono);font-size:.78rem;line-height:1.7">`
-      + esc(TREE.claude) + `</pre>`;
-  }
   FLAT = flatten(TREE);
   $('#rootp').textContent = TREE.root;
   buildTree();
-  if (redraw && FLAT.length && !CUR) show(TREE.claude ? '__claude' : FLAT[0].key);
+  // 들어오자마자 아무것도 펼치지 않는다. CLAUDE.md 는 쓰는 사람이 고칠 수 없는
+  // 작성 규칙 문서라, 첫 화면에 띄워 두면 그것부터 읽으라는 말처럼 보인다.
 }
 
 $('#tree').addEventListener('click', e => {
@@ -860,11 +857,11 @@ $('#q').addEventListener('input', () => { clearTimeout(tmr); tmr = setTimeout(bu
 const tog = (id, get, set) => $(id).addEventListener('click', () => {
   set(!get()); $(id).setAttribute('aria-pressed', String(get())); buildTree(); });
 tog('#tgq', () => onlyQ, v => onlyQ = v);
-$('#whoBtn').addEventListener('click', async () => { askWho(true); await refresh(false); if (CUR && CUR.cat) show(CUR.key); });
+$('#whoBtn').addEventListener('click', async () => { askWho(true); await refresh(); if (CUR && CUR.cat) show(CUR.key); });
 $('#tgr').addEventListener('click', async () => {
   const b = $('#tgr'); b.disabled = true; b.textContent = '읽는 중…';
   try {
-    await refresh(false, true);
+    await refresh(true);
     if (CUR && CUR.key !== '__claude') { dirty = false; await show(CUR.key); }
   } finally { b.disabled = false; b.textContent = '새로 읽기'; }
 });
@@ -902,7 +899,7 @@ addEventListener('keydown', e => {
 });
 loadWho();
 $('#whoBtn').textContent = ME || '이름 설정';
-refresh(true).catch(e => {
+refresh().catch(e => {
   $('#tree').innerHTML = `<div class="empty">읽기 실패</div>`;
   $('#view').innerHTML = `<div class="errs"><strong>지식시스템을 읽지 못했습니다</strong>`
     + `<ul><li>${esc(e && e.message || e)}</li></ul>`
