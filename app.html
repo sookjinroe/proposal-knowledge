@@ -168,8 +168,10 @@ table.info td:first-child{font-family:var(--mono);font-size:.72rem;color:var(--m
 .doc.edit .blk.open{background:var(--panel);box-shadow:inset 0 0 0 2px var(--accent)}
 .doc.edit .blk.open::after{display:none}
 .ined{padding:.5rem}
-/* 읽던 모습 그대로 고치는 자리. 마크다운 기호는 보이지 않는다 */
-.rich{background:var(--bg);border:1px solid var(--rule);border-radius:3px;
+/* 읽던 모습 그대로 고치는 자리. 마크다운 기호는 보이지 않는다.
+   글 쓰는 자리는 화면에서 가장 밝아야 한다 — 바탕색(회색)을 깔면
+   「지금 못 고치는 칸」처럼 보인다 */
+.rich{background:var(--panel);border:1px solid var(--rule);border-radius:3px;
   padding:.5rem .6rem;min-height:2.6rem;line-height:1.75}
 .rich:focus{outline:2px solid var(--accent);outline-offset:-1px}
 .rich>:first-child{margin-top:0}
@@ -191,7 +193,8 @@ table.grid th{background:var(--sunk)}
 table.grid input{font-family:var(--ui);font-size:.8rem;color:var(--ink);background:transparent;
   border:0;padding:.3rem .45rem;width:100%;min-width:7rem}
 table.grid th input{font-weight:600}
-table.grid input:focus{outline:2px solid var(--accent);outline-offset:-2px;background:var(--bg)}
+table.grid input:focus{outline:2px solid var(--accent);outline-offset:-2px;
+  background:var(--accent-soft)}
 table.grid td.rowtool{border:0;width:1.6rem;text-align:center;background:transparent}
 table.grid td.rowtool .tb{padding:.1rem .3rem;font-size:.8rem;line-height:1}
 
@@ -271,6 +274,9 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':
 const markQ = s => esc(s).replace(/\(확인 필요[^)]*\)/g, m => `<span class="q">${m}</span>`);
 let TREE = null, FLAT = [], CUR = null, dirty = false;
 let onlyQ = false, LOCKS = {};
+// 접었는지 펼쳤는지를 기억해 둔다. 트리는 45초마다(남의 편집 표시 때문에)
+// 다시 그려지는데, 그때마다 접어 둔 것이 도로 펼쳐지면 안 된다.
+const CATOPEN = {};
 
 function flatten(t){
   const out = [];
@@ -287,9 +293,17 @@ function visible(){
   });
 }
 
+// 찾는 중에는 전부 펼친다 (찾은 것이 접힌 안에 숨으면 안 되니까).
+// 그 밖에는 사람이 접었다 폈다 한 대로 따른다.
+function catOpen(id, byDefault){
+  if (searching()) return true;
+  return CATOPEN[id] === undefined ? byDefault : CATOPEN[id];
+}
+function searching(){ return !!$('#q').value.trim() || onlyQ; }
+
 function buildTree(){
   const vis = visible(), set = new Set(vis.map(r => r.key));
-  const open = !!$('#q').value.trim() || onlyQ;
+  const open = searching();
   let h = '';
   if (TREE.claude)
     h += `<div class="cat" data-open="true"><button class="rec" data-key="__claude"${CUR&&CUR.key==='__claude'?' aria-current="true"':''}><span class="nm">CLAUDE.md</span><span class="qn z">규칙</span></button></div>`;
@@ -297,7 +311,7 @@ function buildTree(){
     // 양식은 그 카테고리 맨 위에 둔다 — 새 레코드를 만들 때 바로 집어 가도록
     const kids = c.records.filter(r => set.has(c.id+'/'+r.name));
     kids.sort((a, b) => (b.tmpl ? 1 : 0) - (a.tmpl ? 1 : 0));
-    h += `<div class="cat" data-open="${open||kids.length<=60}"><button class="cathead"><span class="tw">▾</span><span>${esc(c.id)}</span><span class="cn">${kids.length}</span></button><div class="kids">`;
+    h += `<div class="cat" data-cat="${esc(c.id)}" data-open="${catOpen(c.id, open||kids.length<=60)}"><button class="cathead"><span class="tw">▾</span><span>${esc(c.id)}</span><span class="cn">${kids.length}</span></button><div class="kids">`;
     if (!kids.length) h += `<div class="empty">${c.id==='06_인력'?'레코드 없음':'표시할 레코드 없음'}</div>`;
     for (const r of kids){
       const cls = 'rec'+(r.ex?' tmpl ex':r.tmpl?' tmpl':'');
@@ -312,7 +326,7 @@ function buildTree(){
   }
   for (const t of TREE.tests){
     const n = t.groups.reduce((a,g)=>a+g.files.length,0);
-    h += `<div class="cat" data-open="false"><button class="cathead"><span class="tw">▾</span><span>${esc(t.name)}</span><span class="cn">${n}</span></button><div class="kids">`;
+    h += `<div class="cat" data-cat="${esc(t.name)}" data-open="${catOpen(t.name, false)}"><button class="cathead"><span class="tw">▾</span><span>${esc(t.name)}</span><span class="cn">${n}</span></button><div class="kids">`;
     for (const g of t.groups){
       h += `<div class="empty">${esc(g.name)}</div>`;
       for (const f of g.files) h += `<div class="tfile">${esc(f)}</div>`;
@@ -848,7 +862,13 @@ async function refresh(force){
 
 $('#tree').addEventListener('click', e => {
   const ch = e.target.closest('.cathead');
-  if (ch){ const c = ch.parentElement; c.dataset.open = c.dataset.open === 'true' ? 'false' : 'true'; return; }
+  if (ch){
+    const c = ch.parentElement;
+    const now = c.dataset.open !== 'true';
+    c.dataset.open = String(now);
+    if (c.dataset.cat) CATOPEN[c.dataset.cat] = now;   // 다시 그려도 기억하도록
+    return;
+  }
   const rb = e.target.closest('.rec');
   if (rb) show(rb.dataset.key);
 });
