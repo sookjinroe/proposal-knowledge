@@ -53,10 +53,18 @@ h1{font-size:var(--tx);font-weight:600;margin:0;white-space:nowrap}
 .tg[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);font-weight:500}
 #hits{font-family:var(--mono);font-size:var(--tx);color:var(--muted);white-space:nowrap}
 
-.cols{flex:1 1 auto;display:grid;grid-template-columns:16.25rem minmax(0,1fr);min-height:0}
-@media (max-width:860px){.cols{grid-template-columns:1fr;grid-template-rows:14rem minmax(0,1fr)}}
+.cols{flex:1 1 auto;display:grid;
+  grid-template-columns:var(--treew,16.25rem) auto minmax(0,1fr);min-height:0}
+@media (max-width:860px){.cols{grid-template-columns:1fr;
+  grid-template-rows:14rem auto minmax(0,1fr)}}
 nav.tree{overflow:auto;border-right:1px solid var(--rule);background:var(--panel);min-width:0}
 @media (max-width:860px){nav.tree{border-right:0;border-bottom:1px solid var(--rule)}}
+/* 목록 너비를 끌어서 조정하는 손잡이. 레코드 이름이 길어 자주 접힌다 */
+.drag{width:5px;margin-left:-3px;cursor:col-resize;background:transparent;
+  position:relative;z-index:2}
+.drag:hover,.drag:focus-visible,.drag.on{background:var(--accent);opacity:.5;outline:none}
+.dragging,.dragging *{cursor:col-resize!important;user-select:none}
+@media (max-width:860px){.drag{display:none}}
 main.view{overflow:auto;padding:1.4rem 2rem 4rem;min-width:0}
 @media (max-width:860px){main.view{padding:1rem 1.1rem 3rem}}
 
@@ -250,8 +258,11 @@ table.grid td.rowtool .tb{padding:.1rem .3rem;font-size:.8rem;line-height:1}
   <span id="hits"></span>
 </header>
 
-<div class="cols">
+<div class="cols" id="cols">
   <nav class="tree" id="tree"><div class="empty">읽는 중…</div></nav>
+  <div class="drag" id="drag" title="끌어서 너비 조정 · 두 번 누르면 기본값"
+       role="separator" aria-orientation="vertical" tabindex="0"
+       aria-label="목록 너비"></div>
   <main class="view" id="view"><div class="empty">왼쪽에서 레코드를 고르세요.</div></main>
 </div>
 
@@ -297,6 +308,67 @@ const CATOPEN = (() => {
   try { return JSON.parse(localStorage.getItem('ks.cats') || '{}'); }
   catch(_){ return {}; }
 })();
+// ── 목록 너비 ──
+// 레코드 이름이 길어 기본 너비로는 자주 두 줄로 접힌다. 끌어서 넓힐 수 있게 한다.
+const TREE_MIN = 150, TREE_MAX = 640, TREE_DEF = 260;
+
+function setTreeW(px, save){
+  const w = Math.round(Math.min(TREE_MAX, Math.max(TREE_MIN, px)));
+  document.documentElement.style.setProperty('--treew', w + 'px');
+  const d = $('#drag'); if (d) d.setAttribute('aria-valuenow', String(w));
+  if (save) { try { localStorage.setItem('ks.treew', String(w)); } catch(_){} }
+  return w;
+}
+
+function loadTreeW(){
+  let w = TREE_DEF;
+  try { w = parseInt(localStorage.getItem('ks.treew'), 10) || TREE_DEF; } catch(_){}
+  setTreeW(w, false);
+}
+
+function wireDrag(){
+  const d = $('#drag'), cols = $('#cols');
+  if (!d || !cols) return;
+  let on = false;
+  const xOf = e => (e.touches ? e.touches[0].clientX : e.clientX);
+  const move = e => {
+    if (!on) return;
+    setTreeW(xOf(e) - cols.getBoundingClientRect().left, false);
+    e.preventDefault();
+  };
+  const up = () => {
+    if (!on) return;
+    on = false;
+    d.classList.remove('on');
+    document.body.classList.remove('dragging');
+    const w = parseInt(getComputedStyle(document.documentElement)
+      .getPropertyValue('--treew'), 10);
+    if (w) setTreeW(w, true);          // 끝났을 때 한 번만 적어 둔다
+  };
+  const down = e => {
+    on = true;
+    d.classList.add('on');
+    document.body.classList.add('dragging');
+    e.preventDefault();
+  };
+  d.addEventListener('mousedown', down);
+  d.addEventListener('touchstart', down, {passive:false});
+  addEventListener('mousemove', move);
+  addEventListener('touchmove', move, {passive:false});
+  addEventListener('mouseup', up);
+  addEventListener('touchend', up);
+  // 두 번 누르면 기본값으로
+  d.addEventListener('dblclick', () => setTreeW(TREE_DEF, true));
+  // 손잡이에 초점이 있으면 화살표로도 (마우스를 못 쓰는 경우)
+  d.addEventListener('keydown', e => {
+    const step = e.shiftKey ? 40 : 10;
+    const cur = $('#tree').getBoundingClientRect().width;
+    if (e.key === 'ArrowLeft'){ setTreeW(cur - step, true); e.preventDefault(); }
+    if (e.key === 'ArrowRight'){ setTreeW(cur + step, true); e.preventDefault(); }
+    if (e.key === 'Home'){ setTreeW(TREE_DEF, true); e.preventDefault(); }
+  });
+}
+
 function saveCats(){
   try { localStorage.setItem('ks.cats', JSON.stringify(CATOPEN)); } catch(_){}
 }
@@ -1049,6 +1121,8 @@ addEventListener('keydown', e => {
 });
 loadWho();
 applyWide();
+loadTreeW();
+wireDrag();
 $('#whoBtn').textContent = ME || '이름 설정';
 refresh().catch(e => {
   $('#tree').innerHTML = `<div class="empty">읽기 실패</div>`;
