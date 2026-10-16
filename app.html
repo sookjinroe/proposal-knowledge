@@ -276,7 +276,16 @@ let TREE = null, FLAT = [], CUR = null, dirty = false;
 let onlyQ = false, LOCKS = {};
 // 접었는지 펼쳤는지를 기억해 둔다. 트리는 45초마다(남의 편집 표시 때문에)
 // 다시 그려지는데, 그때마다 접어 둔 것이 도로 펼쳐지면 안 된다.
-const CATOPEN = {};
+// 기본은 다 접어 둔다. 전부 펼치면 134줄이라 02_보유자산(51건)을 지나야
+// 03 이 나온다. 접어 두면 여섯 줄이고 건수가 붙어 있어 구조가 한눈에 보인다.
+// 접었다 폈다 한 것은 브라우저에 남겨 다음에 들어와도 그대로 둔다.
+const CATOPEN = (() => {
+  try { return JSON.parse(localStorage.getItem('ks.cats') || '{}'); }
+  catch(_){ return {}; }
+})();
+function saveCats(){
+  try { localStorage.setItem('ks.cats', JSON.stringify(CATOPEN)); } catch(_){}
+}
 
 function flatten(t){
   const out = [];
@@ -303,7 +312,6 @@ function searching(){ return !!$('#q').value.trim() || onlyQ; }
 
 function buildTree(){
   const vis = visible(), set = new Set(vis.map(r => r.key));
-  const open = searching();
   let h = '';
   if (TREE.claude)
     h += `<div class="cat" data-open="true"><button class="rec" data-key="__claude"${CUR&&CUR.key==='__claude'?' aria-current="true"':''}><span class="nm">CLAUDE.md</span><span class="qn z">규칙</span></button></div>`;
@@ -311,7 +319,7 @@ function buildTree(){
     // 양식은 그 카테고리 맨 위에 둔다 — 새 레코드를 만들 때 바로 집어 가도록
     const kids = c.records.filter(r => set.has(c.id+'/'+r.name));
     kids.sort((a, b) => (b.tmpl ? 1 : 0) - (a.tmpl ? 1 : 0));
-    h += `<div class="cat" data-cat="${esc(c.id)}" data-open="${catOpen(c.id, open||kids.length<=60)}"><button class="cathead"><span class="tw">▾</span><span>${esc(c.id)}</span><span class="cn">${kids.length}</span></button><div class="kids">`;
+    h += `<div class="cat" data-cat="${esc(c.id)}" data-open="${catOpen(c.id, false)}"><button class="cathead"><span class="tw">▾</span><span>${esc(c.id)}</span><span class="cn">${kids.length}</span></button><div class="kids">`;
     if (!kids.length) h += `<div class="empty">${c.id==='06_인력'?'레코드 없음':'표시할 레코드 없음'}</div>`;
     for (const r of kids){
       const cls = 'rec'+(r.ex?' tmpl ex':r.tmpl?' tmpl':'');
@@ -352,6 +360,8 @@ async function show(key, mode){
   }
   const [cat, ...rest] = key.split('/');
   const name = rest.join('/');
+  // 찾기로 들어왔으면 그 레코드가 접힌 카테고리 안에 있다. 열어 준다
+  if (!CATOPEN[cat]){ CATOPEN[cat] = true; saveCats(); }
   const res = await fetch(`/api/record?cat=${encodeURIComponent(cat)}&name=${encodeURIComponent(name)}`);
   const r = await res.json();
   if (r.error){ $('#view').innerHTML = `<div class="errs">${esc(r.error)}</div>`; return; }
@@ -866,7 +876,7 @@ $('#tree').addEventListener('click', e => {
     const c = ch.parentElement;
     const now = c.dataset.open !== 'true';
     c.dataset.open = String(now);
-    if (c.dataset.cat) CATOPEN[c.dataset.cat] = now;   // 다시 그려도 기억하도록
+    if (c.dataset.cat){ CATOPEN[c.dataset.cat] = now; saveCats(); }
     return;
   }
   const rb = e.target.closest('.rec');
