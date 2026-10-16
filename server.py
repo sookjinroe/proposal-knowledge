@@ -50,8 +50,45 @@ ROOT = DEFAULT_ROOT
 
 # ─────────────────────────── 파싱 ───────────────────────────
 
+# 「확인 필요」 표시를 찾는 규칙. 세는 쪽과 노랗게 칠하는 쪽이 이 하나를 같이 쓴다.
+# 따로 두었더니 닫는 괄호를 빼먹은 자리가 숫자만 오르고 칠해지지 않았다.
+# 괄호는 반각·전각 둘 다, 띄어쓰기는 몇 칸이든(없어도) 같은 것으로 본다.
+Q_OPEN = re.compile(r'[(（]\s*확인\s*필요')
+_OPENERS, _CLOSERS = '(（', ')）'
+
+
+def q_spans(s):
+    """「확인 필요」 표시가 놓인 자리를 [시작, 끝) 으로 돌려준다.
+
+    괄호 안에 괄호가 또 있어도(「파일명(확장자 제외)」) 짝을 맞춰 끝까지 간다.
+    닫는 괄호가 없으면 그 줄 끝까지로 본다 — 안 그러면 뒤가 통째로 물든다.
+    """
+    out, at = [], 0
+    while True:
+        m = Q_OPEN.search(s, at)
+        if not m:
+            return out
+        depth, i, end = 0, m.start(), None
+        while i < len(s):
+            c = s[i]
+            if c == '\n':
+                break
+            elif c in _OPENERS:
+                depth += 1
+            elif c in _CLOSERS:
+                depth -= 1
+                if depth == 0:
+                    end = i + 1
+                    break
+            i += 1
+        if end is None:
+            end = i                      # 줄 끝(또는 글 끝)에서 끊는다
+        out.append((m.start(), end))
+        at = max(end, m.start() + 1)
+
+
 def count_q(body):
-    return len(re.findall(r'\(확인 필요', body))
+    return len(q_spans(body))
 
 
 # K: 는 네트워크 드라이브라 파일을 열 때마다 느리다.
@@ -349,7 +386,8 @@ def _inline(s):
     # wiki 는 code 와 같은 모양으로 보이지만, 화면에서 고친 뒤 되돌릴 때
     # [[ ]] 인지 ` ` 인지 가려내야 해서 표시를 남긴다.
     s = re.sub(r'\[\[([^\]]+)\]\]', r'<code class="wiki">\1</code>', s)
-    s = re.sub(r'(\(확인 필요[^)]*\))', r'<span class="q">\1</span>', s)
+    for lo, hi in reversed(q_spans(s)):          # 뒤에서부터 끼워야 자리가 안 밀린다
+        s = s[:lo] + '<span class="q">' + s[lo:hi] + '</span>' + s[hi:]
     return s
 
 
@@ -366,11 +404,11 @@ def md_html(text, anchor=False):
     """
     out, lines, i = [], text.split('\n'), 0
 
-    def wrap(html, lo, hi, kind):
+    def wrap(html, lo, hi, kind, extra=''):
         if not anchor:
             return html
-        return ('<div class="blk" data-lo="%d" data-hi="%d" data-kind="%s">%s</div>'
-                % (lo, hi, kind, html))
+        return ('<div class="blk" data-lo="%d" data-hi="%d" data-kind="%s"%s>%s</div>'
+                % (lo, hi, kind, extra, html))
 
     while i < len(lines):
         ln = lines[i]
@@ -398,13 +436,37 @@ def md_html(text, anchor=False):
             while i < len(lines) and lines[i].strip().startswith('|'):
                 body.append(_row(lines[i].strip()))
                 i += 1
-            h = ['<div class="tblwrap"><table><thead><tr>']
+            # 칸이 넷 이상인 표는 글 폭(한 줄 48자) 안에 넣으면 못 읽는다.
+            # 그런 표만 글 칸 밖으로 내보낸다. 두 칸짜리 정보표는 글과 같이 둔다.
+            wide = ' wide' if len(head) >= 4 else ''
+            h = ['<div class="tblwrap%s"><table><thead><tr>' % wide]
             h += ['<th>%s</th>' % _inline(c) for c in head]
             h.append('</tr></thead><tbody>')
             for r in body:
                 h.append('<tr>' + ''.join('<td>%s</td>' % _inline(c) for c in r) + '</tr>')
             h.append('</tbody></table></div>')
-            out.append(wrap(''.join(h), lo, i - 1, 'table'))
+            out.append(wrap(''.join(h), lo, i - 1, 'table',
+                            ' data-wide="1"' if wide else ''))
+            continue
+
+        # <!-- --> 안내 주석 — 양식이 「여기엔 뭘 쓴다」를 담아 두는 자리다.
+        # 문단으로 읽으면 &lt;!-- 가 글자 그대로 나와 읽을 수가 없다.
+        # 흐리게 그려만 주고 편집은 막는다.
+        if s.startswith('<!--'):
+            buf = []
+            while i < len(lines):
+                buf.append(lines[i])
+                if '-->' in lines[i]:
+                    i += 1
+                    break
+                i += 1
+            inner = '\n'.join(buf)
+            inner = re.sub(r'^\s*<!--', '', inner)
+            inner = re.sub(r'-->\s*$', '', inner)
+            rows = [x.strip() for x in inner.split('\n') if x.strip()]
+            out.append(wrap('<div class="note">%s</div>'
+                            % '<br>'.join(_inline(x) for x in rows),
+                            lo, i - 1, 'note'))
             continue
 
         # ``` 로 묶은 덩어리 — 조직도처럼 줄 모양 자체가 내용이다.
@@ -775,6 +837,143 @@ def save(cat, name, payload, who=None):
             'index': idx, 'mtime': os.path.getmtime(fp), 'q': count_q(text)}
 
 
+# ──────────────────── 레코드 만들기·지우기 ────────────────────
+
+# 윈도우에서 파일 이름에 못 쓰는 글자 + 폴더를 거슬러 올라가는 수단
+BAD_NAME = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
+TRASH = '_지운것'
+
+
+def check_name(name):
+    """레코드 이름으로 쓸 수 있는지 본다. 경로를 벗어나는 이름을 막는다."""
+    name = (name or '').strip()
+    if not name:
+        return None, '이름을 적어 주세요.'
+    if len(name) > 80:
+        return None, '이름이 너무 깁니다 (80자까지).'
+    if BAD_NAME.search(name):
+        return None, '이름에 \\ / : * ? " < > | 는 쓸 수 없습니다.'
+    if name.startswith('_') or name.startswith('.'):
+        return None, '_ 나 . 로 시작하는 이름은 쓸 수 없습니다 (양식·숨김용).'
+    if name in ('.', '..') or '..' in name:
+        return None, '쓸 수 없는 이름입니다.'
+    if name == 'index':
+        return None, 'index 는 목록 파일 이름이라 쓸 수 없습니다.'
+    return name, None
+
+
+def blank_record(cat, name):
+    """양식이 없는 카테고리(04·05·06)에 쓸 최소 골격."""
+    label = dict((c, l) for c, l, _ in CATS)[cat]
+    head = REQUIRED.get(cat) or ['%s명' % label]
+    rows = '\n'.join('| %s | (확인 필요) |' % f for f in head)
+    return ('# %s\n\n## %s 정보\n\n| 항목 | 내용 |\n|---|---|\n%s\n\n'
+            '## 내용\n- (확인 필요)\n' % (name, label, rows))
+
+
+def add_missing_fields(cat, text):
+    """양식에 빠져 있는 필수 필드를 정보표에 채워 넣는다.
+
+    02 양식에는 「소속 오퍼링·담당자」가, 03 에는 「담당자」가 없다.
+    그대로 만들면 다 채우고 저장할 때 「필수 필드가 없습니다」로 막힌다.
+    """
+    need = REQUIRED.get(cat)
+    if not need:
+        return text
+    p = parse(text)
+    if not p['tbl']:
+        return text
+    have = [f['label'] for f in p['fields']]
+    miss = [x for x in need if x not in have]
+    if not miss:
+        return text
+    lines = list(p['lines'])
+    at = p['tbl'][1] + 1                      # 표의 마지막 줄 바로 뒤
+    lines[at:at] = ['| %s | (확인 필요) |' % x for x in miss]
+    return '\n'.join(lines).rstrip('\n') + '\n'
+
+
+def new_record(cat, name, who):
+    """레코드를 새로 만든다. 그 카테고리의 양식을 그대로 복사해 쓴다."""
+    if cat not in dict((c, f) for c, _, f in CATS):
+        return {'ok': False, 'errors': ['그런 카테고리가 없습니다.']}
+    name, err = check_name(name)
+    if err:
+        return {'ok': False, 'errors': [err]}
+    fm = dict((c, f) for c, _, f in CATS)[cat]
+    # rec_path 는 폴더 방식이 아닐 때 있든 없든 경로를 돌려준다. 있는지는 따로 본다
+    cur = rec_path(cat, name, fm)
+    if cur and os.path.exists(cur):
+        return {'ok': False, 'errors': ['같은 이름의 레코드가 이미 있습니다.']}
+
+    base = os.path.join(ROOT, cat)
+    label = dict((c, l) for c, l, _ in CATS)[cat]
+    if fm:
+        d = os.path.join(base, name)
+        if os.path.exists(d):
+            return {'ok': False, 'errors': ['같은 이름의 폴더가 이미 있습니다.']}
+        os.makedirs(d)
+        fp = os.path.join(d, '%s_%s.md' % (label, name))
+    else:
+        fp = os.path.join(base, name + '.md')
+        if os.path.exists(fp):
+            return {'ok': False, 'errors': ['같은 이름의 파일이 이미 있습니다.']}
+
+    tpl = os.path.join(base, '_양식_%s.md' % label)
+    if os.path.exists(tpl):
+        text = open(tpl, encoding='utf-8').read()
+        # 양식의 첫 제목을 이 레코드 이름으로 바꾼다
+        text = re.sub(r'^#\s+.*$', '# ' + name, text, count=1, flags=re.M)
+        # 양식은 표의 값 칸을 비워 둔다. 그대로 두면 아무것도 안 채웠는데도
+        # 트리 배지가 ✓(다 찼음)로 보인다. 빈 칸은 (확인 필요)로 표시해 둔다.
+        text = re.sub(r'^(\|[^|\n]+\|)\s*\|\s*$', r'\1 (확인 필요) |', text, flags=re.M)
+        text = add_missing_fields(cat, text)
+    else:
+        text = blank_record(cat, name)
+    open(fp, 'w', encoding='utf-8', newline='').write(text)
+    scan_cached(True)
+    return {'ok': True, 'cat': cat, 'name': name,
+            'path': os.path.relpath(fp, ROOT), 'q': count_q(text)}
+
+
+def del_record(cat, name, who):
+    """레코드를 지운다 — 정확히는 `_지운것` 으로 옮긴다.
+
+    되돌릴 길이 없으면 안 된다. `_백업` 은 고치기 전 원본만 남겨서,
+    통째로 지운 레코드는 거기서 찾을 수 없다.
+    """
+    if cat not in dict((c, f) for c, _, f in CATS):
+        return {'ok': False, 'errors': ['그런 카테고리가 없습니다.']}
+    fm = dict((c, f) for c, _, f in CATS)[cat]
+    fp = rec_path(cat, name, fm)
+    if not fp or not os.path.exists(fp):
+        return {'ok': False, 'errors': ['레코드를 찾지 못했습니다.']}
+    if name.startswith('_'):
+        return {'ok': False, 'errors': ['양식은 지울 수 없습니다.']}
+
+    cur = lock_read(cat, name, who)
+    if cur and not cur['mine'] and not cur['stale']:
+        return {'ok': False, 'lock': cur,
+                'errors': ['%s 님이 편집 중이라 지울 수 없습니다.' % cur['who']]}
+
+    # 폴더 방식(01)이면 폴더째, 아니면 파일만 옮긴다
+    src = os.path.dirname(fp) if (fm and os.path.basename(os.path.dirname(fp)) == name) else fp
+    stamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
+    d = os.path.join(ROOT, TRASH, cat)
+    os.makedirs(d, exist_ok=True)
+    dst = os.path.join(d, '%s_%s' % (stamp, name))
+    if not os.path.isdir(src):
+        dst += '.md'
+    shutil.move(src, dst)
+
+    with _CACHE_LOCK:
+        _CACHE.pop(fp, None)
+    lock_free(cat, name, who, force=True)
+    scan_cached(True)
+    return {'ok': True, 'cat': cat, 'name': name,
+            'trash': os.path.relpath(dst, ROOT)}
+
+
 # ─────────────────────── 자동 갱신 ───────────────────────
 # 아무도 손대지 않아도 최신 코드로 따라가게 한다.
 # 서버가 주기적으로 git 으로 당겨 받고, 받았으면 스스로 다시 뜬다.
@@ -983,13 +1182,24 @@ class H(SimpleHTTPRequestHandler):
         from urllib.parse import urlparse
         u = urlparse(self.path)
         if u.path not in ('/api/save', '/api/block', '/api/lock',
-                          '/api/unlock', '/api/beat'):
+                          '/api/unlock', '/api/beat', '/api/new', '/api/del'):
             return self._json({'error': 'unknown'}, 404)
         n = int(self.headers.get('Content-Length', 0))
         try:
             body = json.loads(self.rfile.read(n).decode('utf-8'))
         except Exception as e:
             return self._json({'ok': False, 'errors': ['요청을 읽지 못했습니다: %s' % e]}, 400)
+
+        if u.path in ('/api/new', '/api/del'):
+            fn = new_record if u.path == '/api/new' else del_record
+            try:
+                with SAVE_LOCK:
+                    return self._json(fn(body.get('cat'), body.get('name'),
+                                         self.who()))
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                return self._json({'ok': False, 'errors': ['처리 중 오류: %s' % e]}, 500)
 
         if u.path == '/api/block':
             try:
