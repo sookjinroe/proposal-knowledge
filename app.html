@@ -17,6 +17,14 @@
   --bad:#9a2f24; --bad-soft:#f8e6e3;
   --ui:"IBM Plex Sans KR",system-ui,-apple-system,"Malgun Gothic",sans-serif;
   --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+  /* 글자 크기는 이 여섯 단만 쓴다. 마흔 군데에 제각각 적어 두었더니
+     레코드 제목이 그 안의 섹션 제목보다 작아져 위계가 뒤집혀 있었다. */
+  --t1:1.5rem;    /* 레코드 제목 — 이 화면에서 가장 큰 것 */
+  --t2:1.06rem;   /* 섹션 제목 ## */
+  --t3:.94rem;    /* 소제목 ### */
+  --tb:1rem;      /* 본문 */
+  --ts:.875rem;   /* 표·트리 — 2차 정보 */
+  --tx:.78rem;    /* 배지·경로·버튼 — 크롬. 뒤로 물러나야 한다 */
 }
 @media (prefers-color-scheme:dark){:root{
   --bg:#121519; --panel:#1a1e23; --sunk:#20252b; --rule:#2e343c;
@@ -34,16 +42,16 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--ui);font-s
 
 header.top{display:flex;flex-wrap:wrap;gap:.6rem 1.2rem;align-items:center;
   padding:.6rem 16px;border-bottom:1px solid var(--rule);background:var(--panel)}
-h1{font-size:.95rem;font-weight:600;margin:0;white-space:nowrap}
-.rootp{font-family:var(--mono);font-size:.7rem;color:var(--muted);overflow-wrap:anywhere}
-#q{font-family:var(--ui);font-size:.82rem;color:var(--ink);background:var(--bg);
+h1{font-size:var(--tx);font-weight:600;margin:0;white-space:nowrap}
+.rootp{font-family:var(--mono);font-size:var(--tx);color:var(--muted);overflow-wrap:anywhere}
+#q{font-family:var(--ui);font-size:var(--ts);color:var(--ink);background:var(--bg);
   border:1px solid var(--rule);border-radius:3px;padding:.36rem .55rem;flex:1 1 14rem;min-width:0}
 #q:focus{outline:2px solid var(--accent);outline-offset:-1px}
-.tg{font-family:var(--ui);font-size:.74rem;color:var(--muted);background:var(--bg);
+.tg{font-family:var(--ui);font-size:var(--tx);color:var(--muted);background:var(--bg);
   border:1px solid var(--rule);border-radius:3px;padding:.36rem .55rem;cursor:pointer;white-space:nowrap}
 .tg:hover{background:var(--sunk)}
 .tg[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);font-weight:500}
-#hits{font-family:var(--mono);font-size:.7rem;color:var(--muted);white-space:nowrap}
+#hits{font-family:var(--mono);font-size:var(--tx);color:var(--muted);white-space:nowrap}
 
 .cols{flex:1 1 auto;display:grid;grid-template-columns:16.25rem minmax(0,1fr);min-height:0}
 @media (max-width:860px){.cols{grid-template-columns:1fr;grid-template-rows:14rem minmax(0,1fr)}}
@@ -54,26 +62,26 @@ main.view{overflow:auto;padding:1.4rem 2rem 4rem;min-width:0}
 
 .cat{border-bottom:1px solid var(--rule)}
 .cathead{display:flex;align-items:center;gap:.4rem;width:100%;text-align:left;cursor:pointer;
-  font-family:var(--mono);font-size:.74rem;font-weight:500;color:var(--ink);
+  font-family:var(--mono);font-size:var(--ts);font-weight:500;color:var(--ink);
   background:var(--sunk);border:0;padding:.45rem .6rem}
 .cathead:hover{color:var(--accent)}
 .tw{width:.7rem;color:var(--faint)}
 .cat[data-open="false"] .tw{transform:rotate(-90deg)}
-.cathead .cn{margin-left:auto;font-size:.66rem;color:var(--muted)}
+.cathead .cn{margin-left:auto;font-size:var(--tx);color:var(--muted)}
 .cat[data-open="false"] .kids{display:none}
 .rec{display:flex;align-items:baseline;gap:.4rem;width:100%;text-align:left;cursor:pointer;
   background:transparent;border:0;border-left:2px solid transparent;
-  padding:.3rem .6rem .3rem 1.4rem;color:var(--muted);font-family:var(--ui);font-size:.82rem;
+  padding:.3rem .6rem .3rem 1.4rem;color:var(--muted);font-family:var(--ui);font-size:var(--ts);
   font-weight:400;line-height:1.45}
 .rec:hover{background:var(--sunk)}
 .rec:hover .nm{color:var(--ink)}
 .rec[aria-current="true"]{background:var(--accent-soft);border-left-color:var(--accent);
   font-weight:500;color:var(--ink)}
 .rec .nm{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
-.rec .qn{font-family:var(--mono);font-size:.64rem;color:var(--warn);background:var(--warn-soft);
+.rec .qn{font-family:var(--mono);font-size:var(--tx);color:var(--warn);background:var(--warn-soft);
   border-radius:2px;padding:0 .24rem}
 .rec .qn.z{color:var(--ok);background:transparent}
-.rec.addrec .nm{color:var(--faint);font-family:var(--mono);font-size:.72rem}
+.rec.addrec .nm{color:var(--faint);font-family:var(--mono);font-size:var(--tx)}
 .rec.addrec:hover .nm{color:var(--accent)}
 .btn.del{color:var(--bad);border-color:var(--rule)}
 .btn.del:hover{border-color:var(--bad);background:var(--sunk)}
@@ -81,27 +89,27 @@ main.view{overflow:auto;padding:1.4rem 2rem 4rem;min-width:0}
 .rec.tmpl .nm::after{content:"양식";font-family:var(--mono);font-size:.58rem;margin-left:.3rem;
   background:var(--tmpl-soft);color:var(--tmpl);padding:0 .2rem;border-radius:2px}
 .rec.ex .nm::after{content:"기입례(가상)"}
-.empty,.tfile{padding:.3rem .6rem .3rem 1.4rem;font-size:.72rem;color:var(--faint)}
+.empty,.tfile{padding:.3rem .6rem .3rem 1.4rem;font-size:var(--tx);color:var(--faint)}
 .tfile{font-family:var(--mono);padding-left:2.2rem;overflow-wrap:anywhere}
 
 .vhead{border-bottom:1px solid var(--rule);padding-bottom:.7rem;margin-bottom:1rem}
-.vhead h2{font-size:1rem;font-weight:600;margin:0;overflow-wrap:anywhere}
+.vhead h2{font-size:var(--t1);line-height:1.3;font-weight:600;margin:0;overflow-wrap:anywhere}
 .pathrow{display:flex;flex-wrap:wrap;gap:.4rem;align-items:center;margin-top:.4rem}
-.pathrow code{font-family:var(--mono);font-size:.7rem;color:var(--muted);background:var(--sunk);
+.pathrow code{font-family:var(--mono);font-size:var(--tx);color:var(--muted);background:var(--sunk);
   padding:.16rem .4rem;border-radius:2px;overflow-wrap:anywhere;min-width:0}
-.btn{font-family:var(--ui);font-size:.75rem;color:var(--muted);background:var(--panel);
+.btn{font-family:var(--ui);font-size:var(--tx);color:var(--muted);background:var(--panel);
   border:1px solid var(--rule);border-radius:3px;padding:.3rem .6rem;cursor:pointer;white-space:nowrap}
 .btn:hover:not(:disabled){background:var(--sunk);color:var(--accent)}
 .btn:disabled{opacity:.4;cursor:default}
 .btn.go{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:500}
 .btn.go:hover:not(:disabled){background:var(--accent);filter:brightness(1.1);color:#fff}
 .subs{display:flex;flex-wrap:wrap;gap:.3rem;margin-top:.5rem}
-.sub{font-family:var(--mono);font-size:.66rem;border:1px solid var(--rule);border-radius:2px;
+.sub{font-family:var(--mono);font-size:var(--tx);border:1px solid var(--rule);border-radius:2px;
   padding:.12rem .4rem;color:var(--faint)}
 .sub.has{color:var(--accent);border-color:var(--accent)}
-.warnbar{margin-top:.5rem;font-size:.76rem;color:var(--warn)}
+.warnbar{margin-top:.5rem;font-size:var(--tx);color:var(--warn)}
 .warnbar b{font-family:var(--mono);font-weight:600}
-.tmplbar{margin-top:.5rem;font-size:.78rem;color:var(--tmpl);background:var(--tmpl-soft);
+.tmplbar{margin-top:.5rem;font-size:var(--tx);color:var(--tmpl);background:var(--tmpl-soft);
   border-left:3px solid var(--tmpl);padding:.45rem .7rem}
 
 /* 편집 */
@@ -135,16 +143,16 @@ table.info td:first-child{font-family:var(--mono);font-size:.72rem;color:var(--m
 /* 글은 한 줄 48자쯤에서 끊는다. 창을 넓히면 1230px·98자까지 늘어나
    줄 끝에서 다음 줄 앞으로 눈이 돌아올 때 자리를 놓친다.
    표와 ``` 덩어리만 이 울타리 밖으로 내보낸다 — 6칸 표를 좁히면 못 읽는다. */
-.doc{--read:45rem;font-size:1rem;line-height:1.75;overflow-wrap:break-word}
+.doc{--read:45rem;font-size:var(--tb);line-height:1.75;overflow-wrap:break-word}
 .doc > *{max-width:var(--read)}
 .doc > .blk[data-wide], .doc > .blk[data-kind="code"],
 .doc > .tblwrap.wide, .doc > pre{max-width:none}
 .doc.wide > *{max-width:none}
 .doc h1{display:none}
 /* 제목이 본문보다 작으면 위계가 보이지 않는다. 긴 레코드를 훑을 수 있어야 한다 */
-.doc h2{font-size:1.06rem;font-weight:600;color:var(--ink);margin:2rem 0 .55rem}
+.doc h2{font-size:var(--t2);font-weight:600;color:var(--ink);margin:2rem 0 .55rem}
 .doc h2:first-child{margin-top:0}
-.doc h3{font-size:.94rem;font-weight:600;color:var(--muted);margin:1.2rem 0 .3rem}
+.doc h3{font-size:var(--t3);font-weight:600;color:var(--muted);margin:1.2rem 0 .3rem}
 .doc p{margin:.45rem 0}
 .doc ul{margin:.35rem 0;padding-left:1.1rem}
 .doc li{margin:.24rem 0}
@@ -157,21 +165,21 @@ table.info td:first-child{font-family:var(--mono);font-size:.72rem;color:var(--m
   border-radius:2px;overflow-wrap:anywhere}
 /* 양식의 안내 주석 — 읽으라고 있는 것이라 흐리게만 보여 준다 */
 .doc .note{margin:.6rem 0;padding:.5rem .7rem;border-left:2px dashed var(--rule);
-  color:var(--faint);font-size:.78rem;line-height:1.75}
+  color:var(--faint);font-size:var(--ts);line-height:1.75}
 .doc pre{margin:.6rem 0;padding:.6rem .8rem;background:var(--sunk);border-radius:3px;
-  overflow-x:auto;font-family:var(--mono);font-size:.76rem;line-height:1.55}
+  overflow-x:auto;font-family:var(--mono);font-size:var(--ts);line-height:1.55}
 .doc pre code{background:none;padding:0;font-size:1em;white-space:pre}
 .doc blockquote{margin:.6rem 0;padding:.5rem .8rem;background:var(--sunk);
   border-left:3px solid var(--rule);color:var(--muted);font-size:.85rem;border-radius:0 2px 2px 0}
 .doc .q{background:var(--warn-soft);color:var(--warn);border-radius:2px;padding:0 .2em}
 .tblwrap{overflow-x:auto;margin:.5rem 0;min-width:0}
-.doc table{border-collapse:collapse;font-size:.82rem;min-width:100%}
+.doc table{border-collapse:collapse;font-size:var(--ts);min-width:100%}
 .doc th,.doc td{text-align:left;padding:.36rem .6rem;border-bottom:1px solid var(--rule);
   vertical-align:top}
-.doc thead th{font-family:var(--mono);font-size:.66rem;letter-spacing:.05em;text-transform:uppercase;
+.doc thead th{font-family:var(--mono);font-size:var(--tx);letter-spacing:.05em;text-transform:uppercase;
   color:var(--muted);font-weight:500;border-bottom:1px solid var(--ink)}
 .doc tbody tr:last-child td{border-bottom:0}
-.doc td:first-child{font-family:var(--mono);font-size:.76rem;color:var(--muted);white-space:nowrap}
+.doc td:first-child{font-family:var(--mono);font-size:var(--ts);color:var(--muted);white-space:nowrap}
 
 /* 그 자리에서 고치기 */
 .doc .blk{position:relative}
@@ -194,19 +202,19 @@ table.info td:first-child{font-family:var(--mono);font-size:.72rem;color:var(--m
 .rich>:last-child{margin-bottom:0}
 .tools{display:flex;flex-wrap:wrap;gap:.25rem;margin-bottom:.4rem;align-items:center}
 .tbsep{width:1px;height:.9rem;background:var(--rule);margin:0 .2rem}
-.tb{font-family:var(--ui);font-size:.72rem;color:var(--muted);background:var(--panel);
+.tb{font-family:var(--ui);font-size:var(--tx);color:var(--muted);background:var(--panel);
   border:1px solid var(--rule);border-radius:3px;padding:.2rem .45rem;cursor:pointer}
 .tb:hover{background:var(--sunk);color:var(--accent);border-color:var(--accent)}
-.hint{font-size:.7rem;color:var(--faint);margin-top:.35rem;line-height:1.6}
+.hint{font-size:var(--tx);color:var(--faint);margin-top:.35rem;line-height:1.6}
 .hint b{color:var(--muted);font-family:var(--mono);font-weight:500}
 .inbar{display:flex;flex-wrap:wrap;gap:.4rem;align-items:center;margin-top:.5rem}
-.inmsg{font-size:.74rem;color:var(--muted);min-width:0;overflow-wrap:anywhere}
+.inmsg{font-size:var(--tx);color:var(--muted);min-width:0;overflow-wrap:anywhere}
 .inmsg.bad{color:var(--bad)}
 .gridwrap{overflow-x:auto;margin-bottom:.4rem}
 table.grid{border-collapse:collapse;width:100%}
 table.grid th,table.grid td{border:1px solid var(--rule);padding:0}
 table.grid th{background:var(--sunk)}
-table.grid input{font-family:var(--ui);font-size:.8rem;color:var(--ink);background:transparent;
+table.grid input{font-family:var(--ui);font-size:var(--ts);color:var(--ink);background:transparent;
   border:0;padding:.3rem .45rem;width:100%;min-width:7rem}
 table.grid th input{font-weight:600}
 table.grid input:focus{outline:2px solid var(--accent);outline-offset:-2px;
@@ -220,13 +228,13 @@ table.grid td.rowtool .tb{padding:.1rem .3rem;font-size:.8rem;line-height:1}
 .lockbar.mine{background:var(--ok-soft);border-left:3px solid var(--ok);color:var(--ok)}
 .lockbar.other{background:var(--warn-soft);border-left:3px solid var(--warn);color:var(--warn)}
 .lockbar b{font-family:var(--mono);font-weight:600}
-.rec .lk{font-size:.62rem;font-family:var(--mono);color:var(--warn);flex:0 0 auto}
+.rec .lk{font-size:var(--tx);font-family:var(--mono);color:var(--warn);flex:0 0 auto}
 .rec .lk.mine{color:var(--ok)}
 .editing .savebar{background:var(--ok-soft);border-color:var(--ok)}
 .savebar{position:sticky;bottom:0;display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;
   background:var(--panel);border:1px solid var(--rule);border-radius:4px;
   padding:.5rem .7rem;margin-top:1.2rem;box-shadow:0 -2px 10px rgb(0 0 0 / .06)}
-.msg{font-size:.78rem;min-width:0;overflow-wrap:anywhere}
+.msg{font-size:var(--tx);min-width:0;overflow-wrap:anywhere}
 .msg.ok{color:var(--ok)}
 .msg.bad{color:var(--bad)}
 .errs{background:var(--bad-soft);border-left:3px solid var(--bad);padding:.55rem .75rem;
