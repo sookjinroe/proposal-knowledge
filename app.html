@@ -423,6 +423,9 @@ function render(editing){
       b.classList.add('can');
       b.title = EDITABLE[k] + ' 고치기';
       b.addEventListener('click', e => {
+        // 편집 상자 안에서 난 클릭은 여기까지 올라와도 무시한다.
+        // 「취소」가 상자를 닫는 순간 이 클릭이 그대로 올라와 다시 열어 버린다.
+        if (e.target.closest('.ined')) return;
         if (b.querySelector('.ined')) return;      // 이미 열려 있다
         if (e.target.closest('a')) return;
         openBlock(b);
@@ -444,6 +447,13 @@ function srcLines(lo, hi){
 }
 
 function openBlock(b){
+  // 한 번에 한 군데만 연다. 여러 군데를 열어 두면 「어디를 고치고 있었지」가
+  // 헷갈리고, 한쪽을 취소할 때 다른 쪽의 안 저장된 수정이 조용히 날아간다.
+  const open = $('.blk.open');
+  if (open){
+    if (open === b) return;
+    if (!closeBlock(open)) return;        // 고치던 게 있어 되돌아간 경우
+  }
   const lo = +b.dataset.lo, hi = +b.dataset.hi, kind = b.dataset.kind;
   const raw = srcLines(lo, hi);
   b.dataset.keep = b.innerHTML;
@@ -462,10 +472,16 @@ function openBlock(b){
   ed.querySelector('.sv').onclick = () => saveBlock(b, kind, ed);
 }
 
-function closeBlock(b){
+// 그 블록 하나만 되돌린다. 편집 모드와 잠금은 그대로 둔다.
+// 고치던 글이 있으면 한 번 묻는다 — 물러나면 false 를 돌려준다.
+function closeBlock(b, force){
+  if (!force && dirty
+      && !confirm('이 자리에서 고치던 것이 있습니다. 버리고 원래 글로 되돌릴까요?'))
+    return false;
   if (b.dataset.keep !== undefined){ b.innerHTML = b.dataset.keep; delete b.dataset.keep; }
   b.classList.remove('open');
   dirty = false;
+  return true;
 }
 
 // ── 글 — 렌더된 모습 그대로 고친다. 마크다운 기호는 보이지 않는다 ──
