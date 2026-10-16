@@ -73,7 +73,7 @@ git fetch          # 로그인 창 없이 바로 끝나야 한다
 ## 4. 켜기
 
 ```powershell
-python server.py --host 0.0.0.0 --root "<경로>\제안전략 지식시스템"
+python watchdog.py --host 0.0.0.0 --root "<경로>\제안전략 지식시스템"
 ```
 
 첫 기동은 **15초쯤 걸린다.** 레코드를 처음 훑는 시간이다. 멈춘 게 아니다.

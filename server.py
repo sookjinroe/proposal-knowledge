@@ -779,6 +779,7 @@ def save(cat, name, payload, who=None):
 # 열어 둔 화면은 버전이 바뀐 것을 보고 알아서 새로 고친다.
 
 RESTART = {'want': False, 'srv': None}
+RESTART_CODE = 7        # 지킴이에게 「새 코드로 다시 띄워 달라」고 알리는 값
 # 사내 프록시를 거치면 GitHub 응답이 몇 분씩 걸린다. 짧게 잡으면
 # 자동 갱신이 매번 타임아웃으로 조용히 건너뛰어, 영영 최신이 되지 않는다.
 GIT_TIMEOUT = 300
@@ -819,6 +820,10 @@ def update_once():
         local = _git('rev-parse', 'HEAD').stdout.strip()
         remote = _git('rev-parse', up).stdout.strip()
         if not local or local == remote:
+            return False
+        # 원격이 이미 우리 조상이면 받을 것이 없다 — 아직 못 올린 커밋이
+        # 있을 뿐이다. 이걸 안 보면 「다르다」는 이유로 10분마다 다시 뜬다.
+        if _git('merge-base', '--is-ancestor', remote, 'HEAD').returncode == 0:
             return False
         if _git('status', '--porcelain').stdout.strip():
             print('  [자동 갱신] 고쳐 둔 파일이 있어 건너뜁니다.')
@@ -1121,8 +1126,19 @@ def main():
         except Exception:
             pass
     if RESTART['want']:
+        # 지킴이가 띄운 것이면 지킴이가 다시 띄운다. 알려 주고 빠지면 된다
+        if os.environ.get('KS_SUPERVISED'):
+            sys.exit(RESTART_CODE)
         time.sleep(1)
-        os.execv(sys.executable, [sys.executable, os.path.abspath(__file__)] + sys.argv[1:])
+        # 윈도우의 os.execv 는 빈칸이 든 인자를 따옴표로 묶지 않는다.
+        # 「제안서 작성 에이전트」 같은 경로가 토막 나 새로 뜬 쪽이 바로 죽는다.
+        # 실제로 이것 때문에 밤사이 편집기가 꺼져 있었다. Popen 은 제대로 묶는다.
+        flags = 0
+        if os.name == 'nt':
+            flags = (getattr(subprocess, 'DETACHED_PROCESS', 0)
+                     | getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0))
+        subprocess.Popen([sys.executable, os.path.abspath(__file__)] + sys.argv[1:],
+                         cwd=HERE, close_fds=True, creationflags=flags)
 
 
 if __name__ == '__main__':

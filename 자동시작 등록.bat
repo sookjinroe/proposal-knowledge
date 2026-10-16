@@ -34,7 +34,7 @@ if "%PYW%"=="" (
 powershell -NoProfile -Command ^
   "$s=(New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path ([Environment]::GetFolderPath('Startup')) '지식시스템 편집기.lnk'));" ^
   "$s.TargetPath='%PYW%';" ^
-  "$s.Arguments='\"%~dp0server.py\" --host %HOSTARG% --no-open --root \"%ROOT%\" --log \"%~dp0_log\server.log\"';" ^
+  "$s.Arguments='\"%~dp0watchdog.py\" --host %HOSTARG% --no-open --root \"%ROOT%\" --log \"%~dp0_log\server.log\"';" ^
   "$s.WorkingDirectory='%~dp0';" ^
   "$s.Description='제안전략 지식시스템 편집기';" ^
   "$s.Save()"
@@ -52,7 +52,7 @@ echo.
 echo   지금 바로 띄울까요?
 set /p NOW=(y = 지금 띄움, 엔터 = 다음 로그온부터):
 if /i "%NOW%"=="y" (
-  start "" "%PYW%" "%~dp0server.py" --host %HOSTARG% --no-open --root "%ROOT%" --log "%~dp0_log\server.log"
+  start "" "%PYW%" "%~dp0watchdog.py" --host %HOSTARG% --no-open --root "%ROOT%" --log "%~dp0_log\server.log"
   echo   띄웠습니다. 잠시 뒤 http://127.0.0.1:8777 로 들어가 보세요.
   echo   처음 뜰 때는 레코드를 훑느라 15초쯤 걸립니다.
 )
