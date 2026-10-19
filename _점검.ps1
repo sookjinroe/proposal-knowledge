@@ -99,7 +99,9 @@ try {
 $fh = Join-Path $HERE '.git\FETCH_HEAD'
 if (Test-Path $fh) {
   $age = (Get-Date) - (Get-Item $fh).LastWriteTime
-  if ($age.TotalHours -ge 2) {
+  # 자동 갱신은 1시간마다 돈다. 두 번 거르는 것은 프록시가 느린 날이면
+  # 흔하다. 네 번 거르면 그때는 정말 안 되는 것이다.
+  if ($age.TotalHours -ge 4) {
     적어 '**' ('자동 갱신이 {0:N0}시간째 돌지 않았습니다. GitHub 에 닿지 못하는지 보세요.' -f $age.TotalHours)
   } else {
     적어 '✔' ('자동 갱신 {0:N0}분 전' -f $age.TotalMinutes)

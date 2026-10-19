@@ -1424,12 +1424,19 @@ class H(SimpleHTTPRequestHandler):
 # ─────────────────────── 살아 있는지 기록 ───────────────────────
 # 2026-10-19 에 편집기가 멈춰 윈도우가 죽였는데(AppHang), 로그에 시각이 없어
 # 언제 어디서 멈췄는지 알 수가 없었다. 다음에는 잡히도록 남긴다.
-#   · 1분마다 「살아 있음」 과 K드라이브 응답 시간
 #   · K드라이브가 10초 넘게 안 돌아오면 그 자리에서 모든 스레드 스택을 찍는다
 #     (멈춘 곳이 K드라이브인지 아닌지가 이것으로 갈린다)
+#
+# 처음에는 1분마다 봤다. 원인을 몰랐으니 촘촘히 볼 이유가 있었다. 원인을
+# 찾은 뒤로는 하루 1,440번 네트워크 드라이브를 긁을 이유가 없다. K: 가
+# 삐끗하는 것은 kd() 가 두드릴 때 스스로 적는다.
 
 HB_SLOW = 10.0          # 이 이상 걸리면 느린 것으로 본다
-HB_EVERY = 60
+HB_EVERY = 300          # 5분
+HB_SAY = 12             # 멀쩡해도 이만큼마다 한 줄 (1시간)
+
+# 기록은 지우지 않으면 끝없이 자란다. 이만큼 넘으면 한 벌만 남기고 접는다.
+LOG_MAX = 10 << 20      # 10MB
 
 
 def heartbeat(root):
@@ -1445,7 +1452,7 @@ def heartbeat(root):
             ok, err = False, '%s: %s' % (type(e).__name__, e)
         dt = time.time() - t0
         slow = dt >= HB_SLOW
-        if slow or not ok or n % 10 == 0:
+        if slow or not ok or n % HB_SAY == 0:
             print('  [상태] K드라이브 %.1f초%s · 스레드 %d개%s'
                   % (dt, '' if ok else ' · 읽기 실패 ' + err,
                      threading.active_count(), ' ** 느림' % () if slow else ''))
@@ -1482,6 +1489,13 @@ def main():
     if '--log' in sys.argv:
         path = sys.argv[sys.argv.index('--log') + 1]
         os.makedirs(os.path.dirname(os.path.abspath(path)) or '.', exist_ok=True)
+        # 켤 때만 본다. 돌아가는 중에 접으려면 열어 둔 파일 손잡이를 바꿔야
+        # 하는데, 자동 갱신으로 며칠에 한 번은 다시 뜨니 그럴 값이 없다.
+        try:
+            if os.path.getsize(path) > LOG_MAX:
+                os.replace(path, path + '.1')     # 한 벌만 남긴다
+        except OSError:
+            pass
         fh = open(path, 'a', encoding='utf-8', errors='replace', buffering=1)
         fh.write('\n%s  ─── 켬 ───\n' % datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
@@ -1535,8 +1549,10 @@ def main():
                     help='콘솔 없이 돌릴 때 기록을 남길 파일')
     ap.add_argument('--no-auto-update', action='store_true',
                     help='git 으로 스스로 최신 코드를 받지 않는다')
-    ap.add_argument('--update-every', type=int, default=600,
-                    help='자동 갱신 확인 주기(초). 기본 10분')
+    # 이 도구는 주에 몇 번 바뀐다. 10분마다 물으면 프록시 타임아웃 300초짜리
+    # 호출을 하루 144번 거는 셈이고, 그렇게 급할 일이 아니다.
+    ap.add_argument('--update-every', type=int, default=3600,
+                    help='자동 갱신 확인 주기(초). 기본 1시간')
     ap.add_argument('--git-timeout', type=int, default=300,
                     help='git 한 번에 기다릴 시간(초). 프록시가 느리면 늘린다')
     a = ap.parse_args()

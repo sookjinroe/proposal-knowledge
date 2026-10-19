@@ -73,10 +73,11 @@ switch ($Mode) {
     )
 
     # 시간 제한을 풀지 않으면 윈도가 사흘 뒤 알아서 꺼 버린다.
+    # 「실패하면 몇 번 다시」(RestartCount) 는 달지 않는다. 위의 5분 되풀이가
+    # 같은 일을 하므로, 두 겹으로 두면 어느 쪽이 띄운 것인지만 헷갈린다.
     $set = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew `
              -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
-             -StartWhenAvailable -ExecutionTimeLimit ([TimeSpan]::Zero) `
-             -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
+             -StartWhenAvailable -ExecutionTimeLimit ([TimeSpan]::Zero)
 
     # K드라이브는 로그온한 세션 안에만 걸리는 드라이브다. 그래서
     # 「로그온해 있을 때만」(Interactive) 으로 둘 수밖에 없다.

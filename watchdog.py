@@ -22,8 +22,9 @@ PORT_BUSY = 1           # 이미 켜져 있을 때 — 다시 띄우면 안 된�
 
 TOO_FAST = 20           # 이 안에 죽으면 「바로 죽었다」고 본다
 GIVE_UP_AFTER = 5       # 바로 죽기를 이만큼 되풀이하면 멈춘다
-BUSY_TRIES = 60         # 포트가 풀리기를 기다리는 횟수 (5초씩 — 5분).
-                        # 브라우저를 열어 둔 채 끊기면 1분으로는 모자랐다
+BUSY_TRIES = 12         # 포트가 풀리기를 기다리는 횟수 (5초씩 — 1분).
+                        # 길게 기다릴 필요가 없다. 여기서 물러나도 작업
+                        # 스케줄러가 5분 안에 다시 띄운다
 
 
 def port_of():
@@ -91,15 +92,10 @@ def main():
             say('띄우지 못했습니다: %s' % e)
             return 1
         try:
-            # wait() 로 붙어 있으면 자식이 멈출 때 지킴이까지 「교차 프로세스
-            # 멈춤」(AppHangXProcB1)으로 묶여 함께 종료된다. 2026-10-19 에
-            # 그래서 둘 다 죽고 아무도 되살리지 못했다. 짧게 끊어 가며 본다.
-            code = None
-            while code is None:
-                try:
-                    code = p.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    pass
+            # 2026-10-19 에 둘이 함께 죽은 것은 이 wait() 때문이 아니었다.
+            # Claude 앱이 업데이트되며 자기 밑을 정리한 것이고, 이제 작업
+            # 스케줄러가 띄우므로 남의 자식이 아니다. 그냥 기다린다.
+            code = p.wait()
         except KeyboardInterrupt:
             say('멈추라고 하셔서 같이 내려갑니다.')
             try:
