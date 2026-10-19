@@ -982,8 +982,11 @@ def new_record(cat, name, who):
     tpl = os.path.join(base, '_양식_%s.md' % label)
     if os.path.exists(tpl):
         text = open(tpl, encoding='utf-8').read()
-        # 양식의 첫 제목을 이 레코드 이름으로 바꾼다
-        text = re.sub(r'^#\s+.*$', '# ' + name, text, count=1, flags=re.M)
+        # 양식의 첫 제목을 이 레코드 이름으로 바꾼다.
+        # 폴더 방식은 파일명(`사업실적_…`·`실주사업_…`)을 그대로 쓴다. 파일 하나만
+        # 떼어 봐도 무엇인지 알아야 한다 — 특히 07 은 실적으로 읽히면 안 된다.
+        head = os.path.basename(fp)[:-3] if fm else name
+        text = re.sub(r'^#\s+.*$', '# ' + head, text, count=1, flags=re.M)
         # 양식은 표의 값 칸을 비워 둔다. 그대로 두면 아무것도 안 채웠는데도
         # 트리 배지가 ✓(다 찼음)로 보인다. 빈 칸은 (확인 필요)로 표시해 둔다.
         text = re.sub(r'^(\|[^|\n]+\|)\s*\|\s*$', r'\1 (확인 필요) |', text, flags=re.M)
