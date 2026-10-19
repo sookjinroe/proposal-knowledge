@@ -23,6 +23,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $NAME = '제안전략 지식시스템 편집기'
+$점검 = '제안전략 지식시스템 점검'
 $HERE = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 function HasTask {
@@ -93,6 +94,49 @@ switch ($Mode) {
       Write-Host '  시작 폴더에 있던 옛 바로가기는 지웠습니다.'
     }
 
+    # 달마다 한 번 훑는 작업도 같이 건다. 5분 되살림은 「꺼진 것」만 잡고,
+    # 꺼지지 않은 채 이상해진 것은 아무도 알려 주지 않는다.
+    # -Monthly 를 주는 cmdlet 이 없어서 XML 로 만든다.
+    $월 = @'
+<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <Triggers><CalendarTrigger>
+    <StartBoundary>__시작__</StartBoundary><Enabled>true</Enabled><RandomDelay>PT10M</RandomDelay>
+    <ScheduleByMonth><DaysOfMonth><Day>1</Day></DaysOfMonth><Months>
+      <January /><February /><March /><April /><May /><June />
+      <July /><August /><September /><October /><November /><December />
+    </Months></ScheduleByMonth>
+  </CalendarTrigger></Triggers>
+  <Principals><Principal id="Author">
+    <LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel>
+  </Principal></Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled><RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <ExecutionTimeLimit>PT30M</ExecutionTimeLimit>
+  </Settings>
+  <Actions Context="Author"><Exec>
+    <Command>powershell.exe</Command>
+    <Arguments>__인자__</Arguments>
+    <WorkingDirectory>__폴더__</WorkingDirectory>
+  </Exec></Actions>
+</Task>
+'@
+    $월 = $월.Replace('__시작__', (Get-Date '10:00:00').AddMonths(1).ToString('yyyy-MM-01THH:mm:ss'))
+    $월 = $월.Replace('__인자__', ('-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}\_점검.ps1"' -f $HERE))
+    $월 = $월.Replace('__폴더__', $HERE)
+    try {
+      Register-ScheduledTask -TaskName $점검 -Xml $월 `
+        -User "$env:USERDOMAIN\$env:USERNAME" -Force | Out-Null
+      Write-Host '  달마다 1일 오전 10시에 한 번 훑도록 걸었습니다.'
+    } catch {
+      Write-Host ('  월 점검은 걸지 못했습니다: ' + $_.Exception.Message)
+    }
+
     Write-Host '  등록했습니다.'
     $addr = if ($Listen -eq '0.0.0.0') { '<이 PC 주소>' } else { '127.0.0.1' }
     Write-Host ('    여는 곳  http://{0}:8777/' -f $addr)
@@ -105,6 +149,10 @@ switch ($Mode) {
       Write-Host '  해제했습니다. 다음 로그온부터 뜨지 않습니다.'
     } else {
       Write-Host '  등록돼 있지 않습니다.'
+    }
+    if (Get-ScheduledTask -TaskName $점검 -ErrorAction SilentlyContinue) {
+      Unregister-ScheduledTask -TaskName $점검 -Confirm:$false
+      Write-Host '  월 점검도 해제했습니다.'
     }
     $old = Join-Path ([Environment]::GetFolderPath('Startup')) '지식시스템 편집기.lnk'
     if (Test-Path $old) { Remove-Item $old -Force; Write-Host '  옛 바로가기도 지웠습니다.' }
@@ -139,6 +187,8 @@ switch ($Mode) {
     Write-Host ('  작업      ' + $t.State)
     Write-Host ('  마지막    {0}  (결과 {1})' -f $i.LastRunTime, $i.LastTaskResult)
     Write-Host ('  다음      ' + $i.NextRunTime)
+    $c = Get-ScheduledTaskInfo -TaskName $점검 -ErrorAction SilentlyContinue
+    if ($c) { Write-Host ('  월 점검    다음 {0}' -f $c.NextRunTime) }
     $live = Get-CimInstance Win32_Process -Filter "Name like 'python%'" -ErrorAction SilentlyContinue |
               Where-Object { $_.CommandLine -like "*$HERE*" }
     foreach ($p in $live) {

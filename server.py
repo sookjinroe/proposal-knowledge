@@ -35,8 +35,16 @@ CATS = [
     ('04_회사정보', '회사정보', False),
     ('05_오퍼링', '오퍼링', False),
     ('06_인력', '인력', False),
-    ('07_실주사업', '실주사업', False),
+    ('07_실주사업', '실주사업', True),
 ]
+
+# 폴더 방식 카테고리의 하위 폴더 — 레코드를 새로 만들 때 같이 판다.
+# 자료를 둘 자리가 없으면 결국 아무 데나 쌓인다.
+SUBDIRS = {
+    '01_사업실적': ['제안자료', '보고자료', '산출물', '증빙'],
+    # 실주 건에는 산출물·증빙이 없다. 제안서와 실주 보고서뿐이다.
+    '07_실주사업': ['제안자료', '실주보고서'],
+}
 
 # 카테고리별 필수 필드 — 저장 전에 있는지 본다
 REQUIRED = {
@@ -963,6 +971,8 @@ def new_record(cat, name, who):
         if os.path.exists(d):
             return {'ok': False, 'errors': ['같은 이름의 폴더가 이미 있습니다.']}
         os.makedirs(d)
+        for s in SUBDIRS.get(cat, []):
+            os.makedirs(os.path.join(d, s), exist_ok=True)
         fp = os.path.join(d, '%s_%s.md' % (label, name))
     else:
         fp = os.path.join(base, name + '.md')
