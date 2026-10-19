@@ -91,7 +91,15 @@ def main():
             say('띄우지 못했습니다: %s' % e)
             return 1
         try:
-            code = p.wait()
+            # wait() 로 붙어 있으면 자식이 멈출 때 지킴이까지 「교차 프로세스
+            # 멈춤」(AppHangXProcB1)으로 묶여 함께 종료된다. 2026-10-19 에
+            # 그래서 둘 다 죽고 아무도 되살리지 못했다. 짧게 끊어 가며 본다.
+            code = None
+            while code is None:
+                try:
+                    code = p.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    pass
         except KeyboardInterrupt:
             say('멈추라고 하셔서 같이 내려갑니다.')
             try:

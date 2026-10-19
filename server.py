@@ -20,6 +20,7 @@ import hashlib
 import subprocess
 import threading
 import time
+import traceback
 import webbrowser
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 
@@ -1345,6 +1346,51 @@ class H(SimpleHTTPRequestHandler):
             return self._json({'ok': False, 'errors': ['저장 중 오류: %s' % e]}, 500)
 
 
+# ─────────────────────── 살아 있는지 기록 ───────────────────────
+# 2026-10-19 에 편집기가 멈춰 윈도우가 죽였는데(AppHang), 로그에 시각이 없어
+# 언제 어디서 멈췄는지 알 수가 없었다. 다음에는 잡히도록 남긴다.
+#   · 1분마다 「살아 있음」 과 K드라이브 응답 시간
+#   · K드라이브가 10초 넘게 안 돌아오면 그 자리에서 모든 스레드 스택을 찍는다
+#     (멈춘 곳이 K드라이브인지 아닌지가 이것으로 갈린다)
+
+HB_SLOW = 10.0          # 이 이상 걸리면 느린 것으로 본다
+HB_EVERY = 60
+
+
+def heartbeat(root):
+    n = 0
+    while True:
+        time.sleep(HB_EVERY)
+        n += 1
+        t0 = time.time()
+        ok, err = True, ''
+        try:
+            os.listdir(root)
+        except Exception as e:
+            ok, err = False, '%s: %s' % (type(e).__name__, e)
+        dt = time.time() - t0
+        slow = dt >= HB_SLOW
+        if slow or not ok or n % 10 == 0:
+            print('  [상태] K드라이브 %.1f초%s · 스레드 %d개%s'
+                  % (dt, '' if ok else ' · 읽기 실패 ' + err,
+                     threading.active_count(), ' ** 느림' % () if slow else ''))
+        if slow or not ok:
+            # faulthandler 는 진짜 파일 디스크립터를 요구해서 로그(Tee)에 못 쓴다.
+            # 스택을 글자로 만들어 평소 로그에 그대로 남긴다 — 한 군데서 보게.
+            try:
+                print('  [상태] 멈춘 자리 ─────────────')
+                for tid, frame in sys._current_frames().items():
+                    nm = next((t.name for t in threading.enumerate()
+                               if t.ident == tid), '?')
+                    print('   · 스레드 %s (%s)' % (tid, nm))
+                    for ln in traceback.format_stack(frame)[-6:]:
+                        for x in ln.rstrip().split('\n'):
+                            print('     ' + x.strip()[:150])
+                print('  [상태] ───────────────────────')
+            except Exception as e:
+                print('  [상태] 스택을 찍지 못했습니다: %s' % e)
+
+
 def main():
     global ROOT
     # 한글 윈도우 콘솔은 기본이 cp949 라서 — 「」 ※ 같은 글자를 못 찍고 죽는다.
@@ -1365,10 +1411,29 @@ def main():
         fh.write('\n%s  ─── 켬 ───\n' % datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
         class _Tee:
+            """줄마다 시각을 붙인다.
+
+            시각이 없으면 멈춘 시점을 영영 특정할 수 없다 —
+            2026-10-19 에 멈췄을 때 로그가 폴링 기록만 남기고 끊겨서
+            언제 죽었는지 알 수가 없었다.
+            """
             def __init__(self, *s):
                 self.s = [x for x in s if x]
+                self.bol = True
 
             def write(self, t):
+                if t:
+                    now = datetime.datetime.now().strftime('%m-%d %H:%M:%S')
+                    out = []
+                    for i, part in enumerate(t.split('\n')):
+                        if i:
+                            out.append('\n')
+                            self.bol = True
+                        if part and self.bol:
+                            out.append(now + ' ')
+                            self.bol = False
+                        out.append(part)
+                    t = ''.join(out)
                 for x in self.s:
                     try:
                         x.write(t)
@@ -1435,6 +1500,7 @@ def main():
         print('다른 포트로 켜려면: python server.py --port 8778')
         sys.exit(1)
     RESTART['srv'] = srv
+    threading.Thread(target=heartbeat, args=(a.root,), daemon=True).start()
     if not a.no_auto_update:
         if os.path.isdir(os.path.join(HERE, '.git')):
             update_once()
