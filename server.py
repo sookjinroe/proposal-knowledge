@@ -133,17 +133,66 @@ def has_review(body):
 _CACHE = {}
 _CACHE_LOCK = threading.Lock()
 
+# K: 는 EFSS 가상 드라이브(`\\localhost\EFSSRedirector`)다. 멀쩡한 경로인데도
+# 순간적으로 튕긴다 — 2026-10-19 16:04 에 목록 읽기가 [WinError 87] 로 한 번
+# 실패했다. 그 한 번이 45초 목록 갱신에 걸리면 사용자는 레코드가 사라진
+# 화면을 보고, 저장에 걸리면 고친 것을 잃는다. 그래서 몇 번 더 두드린다.
+#
+# 「없다」·「이미 있다」·「권한이 없다」는 다시 물어도 같은 답이다. 그런 것은
+# 바로 올려 보낸다. 특히 FileExistsError 를 다시 두드리면 잠금 경쟁이
+# 깨진다 — 남이 쥔 자리를 내가 쥐었다고 볼 수 있다.
+K_SAME = (FileNotFoundError, FileExistsError, NotADirectoryError,
+          IsADirectoryError, PermissionError)
+K_TRIES = 3
+K_WAIT = 0.3
+
+
+def kd(fn, *a, **kw):
+    """K: 를 만지는 호출 하나. 순간적인 실패는 다시 두드린다."""
+    for i in range(1, K_TRIES + 1):
+        try:
+            return fn(*a, **kw)
+        except K_SAME:
+            raise
+        except OSError as e:
+            nm = getattr(fn, '__name__', str(fn))
+            if i == K_TRIES:
+                print('  ** K드라이브 %s 가 %d번 다 실패했습니다: %s' % (nm, K_TRIES, e))
+                raise
+            print('  K드라이브 %s 가 튕겼습니다 (%s). %.1f초 뒤 다시 봅니다.'
+                  % (nm, e, K_WAIT * i))
+            time.sleep(K_WAIT * i)
+
+
+def _read_text(fp):
+    with open(fp, encoding='utf-8') as f:
+        return f.read()
+
+
+def _write_text(fp, text):
+    # 통째로 덮어쓴다. 두 번 써도 결과가 같으니 다시 두드려도 된다.
+    with open(fp, 'w', encoding='utf-8', newline='') as f:
+        f.write(text)
+
+
+def kd_read(fp):
+    return kd(_read_text, fp)
+
+
+def kd_write(fp, text):
+    return kd(_write_text, fp, text)
+
 
 def read_cached(fp):
     try:
-        mt = os.path.getmtime(fp)
+        mt = kd(os.path.getmtime, fp)
     except OSError:
         return None, None
     with _CACHE_LOCK:
         hit = _CACHE.get(fp)
     if hit and hit[0] == mt:
         return hit[1], mt
-    body = open(fp, encoding='utf-8').read()
+    body = kd_read(fp)
     with _CACHE_LOCK:
         _CACHE[fp] = (mt, body)
     return body, mt
@@ -330,10 +379,10 @@ def _one(cat, n, folder_mode, base):
     sibling = os.path.join(base, n)
     try:
         if os.path.isdir(sibling):
-            for s in sorted(os.listdir(sibling)):
+            for s in sorted(kd(os.listdir, sibling)):
                 sp = os.path.join(sibling, s)
                 if os.path.isdir(sp):
-                    subs.append({'name': s, 'n': len(os.listdir(sp))})
+                    subs.append({'name': s, 'n': len(kd(os.listdir, sp))})
     except OSError:
         pass
     return {'name': n, 'q': count_q(body), 'tmpl': n.startswith('_'),
@@ -350,12 +399,14 @@ def scan():
         names = []
         if os.path.isdir(base):
             if folder_mode:
-                names = sorted(d for d in os.listdir(base)
+                names = sorted(d for d in kd(os.listdir, base)
                                if os.path.isdir(os.path.join(base, d)))
                 # 폴더 없이 놓인 양식도 레코드 목록에 올린다
-                names += sorted(os.path.basename(f)[:-3] for f in glob.glob(base + '/_*.md'))
+                names += sorted(os.path.basename(f)[:-3]
+                                for f in kd(glob.glob, base + '/_*.md'))
             else:
-                names = sorted(os.path.basename(f)[:-3] for f in glob.glob(base + '/*.md')
+                names = sorted(os.path.basename(f)[:-3]
+                               for f in kd(glob.glob, base + '/*.md')
                                if os.path.basename(f) != 'index.md')
         meta.append((cat, label, folder_mode, names))
         for n in names:
@@ -374,15 +425,16 @@ def scan():
         cats.append({'id': cat, 'label': label, 'folder': folder_mode, 'records': recs})
 
     tests = []
-    for d in sorted(os.listdir(ROOT)):
+    for d in sorted(kd(os.listdir, ROOT)):
         p = os.path.join(ROOT, d)
         if d.startswith('test_') and os.path.isdir(p):
             groups = []
-            for g in sorted(os.listdir(p)):
+            for g in sorted(kd(os.listdir, p)):
                 gp = os.path.join(p, g)
                 if os.path.isdir(gp):
                     groups.append({'name': g,
-                                   'files': sorted(x for x in os.listdir(gp) if x.endswith('.md'))})
+                                   'files': sorted(x for x in kd(os.listdir, gp)
+                                                   if x.endswith('.md'))})
             tests.append({'name': d, 'groups': groups})
 
     cm = os.path.join(ROOT, 'CLAUDE.md')
@@ -401,7 +453,17 @@ def scan_cached(force=False):
     with _SCAN_LOCK:
         if not force and _SCAN['data'] is not None:
             return _SCAN['data']
-    d = scan()
+    try:
+        d = scan()
+    except OSError as e:
+        # 실패한 결과로 덮으면 사용자는 레코드가 사라진 화면을 본다.
+        # 멀쩡한 지난 목록이 있으면 그것을 그대로 쓴다.
+        with _SCAN_LOCK:
+            old = _SCAN['data']
+        if old is not None:
+            print('  ** 목록을 다시 훑지 못했습니다 (%s). 지난 목록을 그대로 씁니다.' % e)
+            return old
+        raise
     with _SCAN_LOCK:
         _SCAN['data'] = d
     return d
@@ -657,7 +719,7 @@ def save_block(cat, name, payload, who=None):
         return {'ok': False, 'errors': errs, 'warnings': warns}
 
     bk = backup(fp, cat, name)
-    open(fp, 'w', encoding='utf-8', newline='').write(text)
+    kd_write(fp, text)
     with _CACHE_LOCK:
         _CACHE[fp] = (os.path.getmtime(fp), text)
     # 정보표를 고쳤으면 index.md 의 같은 칸도 맞춘다.
@@ -694,7 +756,7 @@ def _lock_path(cat, name):
 def lock_read(cat, name, who=None):
     _, fp = _lock_path(cat, name)
     try:
-        d = json.loads(open(fp, encoding='utf-8').read())
+        d = json.loads(kd_read(fp))
     except Exception:
         return None
     age = time.time() - d.get('beat', 0)
@@ -748,7 +810,7 @@ def lock_beat(cat, name, who):
     _, fp = _lock_path(cat, name)
     cur2 = {k: cur[k] for k in ('who', 'at', 'cat', 'name') if k in cur}
     cur2['beat'] = time.time()
-    open(fp, 'w', encoding='utf-8').write(json.dumps(cur2, ensure_ascii=False))
+    kd_write(fp, json.dumps(cur2, ensure_ascii=False))
     return {'ok': True, 'lock': lock_read(cat, name, who)}
 
 
@@ -770,11 +832,11 @@ def locks_all(who=None):
     out = {}
     if not os.path.isdir(d):
         return out
-    for f in os.listdir(d):
+    for f in sorted(kd(os.listdir, d)):
         if not f.endswith('.json'):
             continue
         try:
-            r = json.loads(open(os.path.join(d, f), encoding='utf-8').read())
+            r = json.loads(kd_read(os.path.join(d, f)))
         except Exception:
             continue
         age = time.time() - r.get('beat', 0)
@@ -797,7 +859,7 @@ def backup(fp, cat, name):
     while os.path.exists(dst):
         dst = os.path.join(d, '%s-%d.md' % (stamp, k))
         k += 1
-    shutil.copy2(fp, dst)
+    kd(shutil.copy2, fp, dst)
     keep = sorted(glob.glob(d + '/*.md'))
     for old in keep[:-30]:
         try:
@@ -885,7 +947,7 @@ def save(cat, name, payload, who=None):
         return {'ok': False, 'errors': errs, 'warnings': warns}
 
     bk = backup(fp, cat, name)
-    open(fp, 'w', encoding='utf-8', newline='').write(text)
+    kd_write(fp, text)
     with _CACHE_LOCK:
         _CACHE[fp] = (os.path.getmtime(fp), text)
     idx = sync_index(cat, name, new_fields)
@@ -993,7 +1055,7 @@ def new_record(cat, name, who):
         text = add_missing_fields(cat, text)
     else:
         text = blank_record(cat, name)
-    open(fp, 'w', encoding='utf-8', newline='').write(text)
+    kd_write(fp, text)
     scan_cached(True)
     return {'ok': True, 'cat': cat, 'name': name,
             'path': os.path.relpath(fp, ROOT), 'q': count_q(text)}
@@ -1038,7 +1100,7 @@ def set_review(cat, name, who, clear=False):
         backup(fp, cat, name)
         lines[at] = row
         text = '\n'.join(lines)
-        open(fp, 'w', encoding='utf-8', newline='').write(text)
+        kd_write(fp, text)
         with _CACHE_LOCK:
             _CACHE[fp] = (os.path.getmtime(fp), text)
         scan_cached(True)
