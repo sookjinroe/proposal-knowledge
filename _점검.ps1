@@ -9,7 +9,9 @@
 #   powershell ... -File _점검.ps1 -Quiet      창 띄우지 않고 기록만
 param(
   [string]$Root = 'K:\Workgroups\제안전략 지식시스템',
-  [switch]$Quiet
+  [switch]$Quiet,
+  # 이미 보고 손본 것을 그만 가리키게 한다. 「여기부터 다시 세라」.
+  [switch]$Clear
 )
 
 $ErrorActionPreference = 'Continue'
@@ -28,6 +30,36 @@ function 답하나($port) {
   try { $c.Connect('127.0.0.1', $port); return $true }
   catch { return $false }
   finally { $c.Close() }
+}
+
+# ── 기준일 — 「여기부터 다시 센다」
+# 이미 손본 일을 달마다 다시 가리키면 금방 무시하게 된다. 그래서 기준을
+# 파일에 적어 두고 그 뒤에 생긴 것만 센다. 다 보고 손봤으면 -Clear.
+$기준파일 = Join-Path $HERE '_log\점검기준.txt'
+if ($Clear) {
+  New-Item -ItemType Directory -Path (Split-Path $기준파일) -Force -ErrorAction SilentlyContinue | Out-Null
+  Set-Content -LiteralPath $기준파일 -Value (Get-Date).ToString('o') -Encoding UTF8
+  Write-Host ('  기준을 지금({0:yyyy-MM-dd HH:mm})으로 옮겼습니다. 이 앞의 것은 더 가리키지 않습니다.' -f (Get-Date))
+  exit 0
+}
+try {
+  if (Test-Path $기준파일) {
+    $기준 = [datetime]::Parse((Get-Content -LiteralPath $기준파일 -TotalCount 1))
+  } else {
+    $기준 = Get-Date
+    New-Item -ItemType Directory -Path (Split-Path $기준파일) -Force -ErrorAction SilentlyContinue | Out-Null
+    Set-Content -LiteralPath $기준파일 -Value $기준.ToString('o') -Encoding UTF8
+  }
+} catch { $기준 = (Get-Date).AddDays(-40) }
+
+# 로그 줄머리의 `MM-DD HH:mm:ss` 를 시각으로 읽는다. 해가 없으니 올해로 보고,
+# 앞날로 나오면 지난해 것이다 (연말에 넘어간 로그).
+function 줄시각($줄) {
+  if ($줄 -notmatch '^(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})') { return $null }
+  $t = Get-Date -Year (Get-Date).Year -Month $Matches[1] -Day $Matches[2] `
+         -Hour $Matches[3] -Minute $Matches[4] -Second $Matches[5]
+  if ($t -gt (Get-Date).AddDays(1)) { $t = $t.AddYears(-1) }
+  return $t
 }
 
 # ── 1. 편집기를 띄워 주는 작업이 살아 있나
@@ -62,29 +94,20 @@ $log = Join-Path $HERE '_log\server.log'
 if (Test-Path $log) {
   $tail = Get-Content -LiteralPath $log -Tail 20000 -Encoding UTF8
   # @() 로 싸지 않으면 한 줄만 걸릴 때 문자열이 와서 [-1] 이 글자가 된다
-  $slow = @($tail | Where-Object { $_ -match '느림|멈춘 자리' })
-  if ($slow) {
-    적어 '**' ('기록에 느림·멈춤이 {0}줄 있습니다. 마지막: {1}' -f $slow.Count, ($slow[-1].Trim()))
+  $slow = @($tail | Where-Object {
+    $_ -match '느림|멈춘 자리|튕겼습니다|다 실패했습니다' -and
+    { $t = 줄시각 $_; $null -eq $t -or $t -ge $기준 }.Invoke()
+  })
+  if ($slow.Count -gt 0) {
+    적어 '**' ('{0:MM-dd} 뒤로 기록에 느림·멈춤이 {1}줄 있습니다. 마지막: {2}' -f $기준, $slow.Count, ($slow[-1].Trim()))
   } else {
-    적어 '✔' '기록에 느림·멈춤 없음'
+    적어 '✔' ('{0:MM-dd} 뒤로 기록에 느림·멈춤 없음' -f $기준)
   }
 } else {
   적어 '**' '기록 파일이 없습니다: _log\server.log'
 }
 
-# ── 5. 윈도가 적어 둔 멈춤
-# 이미 손본 멈춤까지 달마다 다시 경고하면 금방 무시하게 된다. 그래서
-# 「이 날 이후」를 파일에 적어 두고, 그 뒤에 새로 생긴 것만 센다.
-$기준파일 = Join-Path $HERE '_log\점검기준.txt'
-try {
-  if (Test-Path $기준파일) {
-    $기준 = [datetime]::Parse((Get-Content -LiteralPath $기준파일 -TotalCount 1))
-  } else {
-    $기준 = Get-Date
-    New-Item -ItemType Directory -Path (Split-Path $기준파일) -Force -ErrorAction SilentlyContinue | Out-Null
-    Set-Content -LiteralPath $기준파일 -Value $기준.ToString('o') -Encoding UTF8
-  }
-} catch { $기준 = (Get-Date).AddDays(-40) }
+# ── 5. 윈도가 적어 둔 멈춤 — 기준 뒤로 새로 생긴 것만
 try {
   $hang = @(Get-WinEvent -FilterHashtable @{LogName='Application'; Id=1002; StartTime=$기준} -ErrorAction SilentlyContinue |
              Where-Object { $_.Properties[0].Value -like 'python*' })
