@@ -1300,8 +1300,14 @@ class H(SimpleHTTPRequestHandler):
         # send_error 는 여기에 HTTPStatus 를 넘긴다. 문자열로 단정하면
         # 404 가 날 때마다 TypeError 로 응답 없이 연결이 끊긴다.
         first = args[0] if args else ''
-        if isinstance(first, str) and '/api/' in first:
-            sys.stderr.write('  %s\n' % first)
+        if not isinstance(first, str) or '/api/' not in first:
+            return
+        # 열어 둔 화면이 30초마다 묻는 것(locks)과, 편집 중인 잠금을 살려
+        # 두는 신호(beat)는 찍지 않는다. 하루 2,800줄이 같은 말이라
+        # 정작 봐야 할 저장·잠금·오류가 그 사이에 묻힌다.
+        if '/api/locks' in first or '/api/beat' in first:
+            return
+        sys.stderr.write('  %s\n' % first)
 
     def who(self):
         import urllib.parse as _u
