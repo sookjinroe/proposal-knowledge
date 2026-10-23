@@ -1231,10 +1231,20 @@ def update_once():
         return False
 
 
-def updater(every):
+def updater(every, first=0):
+    """새 코드를 받아 두고, 받았으면 다시 뜨게 한다.
+
+    기동할 때의 첫 확인도 이 스레드에서 한다. 전에는 main 이 서버를 띄우기
+    **전에** 한 번 돌렸는데, 사내 프록시를 거치면 GitHub 응답이 1분을 넘기는
+    날이 있어 그동안 화면이 열리지 않았다 (2026-10-23 에 86초). 게다가 그때
+    받은 새 코드는 이 고리를 지나지 않아 다시 뜨지도 않았다.
+    서버를 먼저 띄우고, 확인은 뒤따라오게 한다.
+    """
+    wait = first or every
     blocked = 0
     while True:
-        time.sleep(every)
+        time.sleep(wait)
+        wait = every
         try:
             held = locks_all()
             if held:
@@ -1594,9 +1604,10 @@ def main():
     threading.Thread(target=heartbeat, args=(a.root,), daemon=True).start()
     if not a.no_auto_update:
         if os.path.isdir(os.path.join(HERE, '.git')):
-            update_once()
-            threading.Thread(target=updater, args=(a.update_every,), daemon=True).start()
-            print('  자동 갱신 %d분마다 (끄려면 --no-auto-update)' % max(1, a.update_every // 60))
+            # 첫 확인은 3초 뒤 — 그사이 화면이 먼저 열린다
+            threading.Thread(target=updater, args=(a.update_every, 3), daemon=True).start()
+            print('  자동 갱신 %d분마다 (끄려면 --no-auto-update) · 첫 확인은 곧'
+                  % max(1, a.update_every // 60))
         else:
             print('  자동 갱신 없음 — git 으로 받은 폴더가 아닙니다')
     try:
